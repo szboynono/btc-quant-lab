@@ -1,0 +1,31 @@
+{
+  "name": "btc-quant-lab",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "tsx src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/szboynono/btc-quant-lab.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/szboynono/btc-quant-lab/issues"
+  },
+  "homepage": "https://github.com/szboynono/btc-quant-lab#readme",
+  "dependencies": {
+    "@types/node": "^24.10.1",
+    "axios": "^1.13.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}

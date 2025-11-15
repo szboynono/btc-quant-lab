@@ -1,0 +1,26 @@
+{
+  "workspaceRules": [
+    {
+      "pattern": "**/*.ts",
+      "style": {
+        "description": "TypeScript Node.js backend for crypto quant lab. Focus on clarity, safety, testability.",
+        "rules": [
+          "Always use TypeScript with strict typing, avoid `any` when possible.",
+          "Prefer pure functions and small modules over large files.",
+          "Code should be understandable for a future team / LP due diligence, add concise comments for core logic.",
+          "Use async/await for async code, avoid raw Promise chains.",
+          "When interacting with exchanges, always handle errors and timeouts explicitly.",
+          "Keep business logic (strategy, risk) separate from IO (API calls, file system, logging).",
+          "Prefer named exports over default exports.",
+          "When writing new modules, also suggest minimal unit tests if reasonable."
+        ]
+      }
+    }
+  ],
+  "chatRules": [
+    "This project is a BTC-only quant lab. Default to BTCUSDT and 4h timeframe unless otherwise specified.",
+    "User prefers TypeScript + Node.js. Do NOT propose switching the whole project to Python.",
+    "Focus on simple, robust implementations first (MVP), then suggest incremental improvements.",
+    "When you modify existing files, preserve structure and comments where possible."
+  ]
+}
