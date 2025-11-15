@@ -7,7 +7,7 @@ import { backtestSimpleBtcTrend, printBacktestResult } from "./backtest/engine.j
 async function main() {
   try {
     console.log("正在从Binance获取BTCUSDT 4小时K线...");
-    const candles = await fetchBtc4hCandles(500);
+    const candles = await fetchBtc4hCandles(1000);
     console.log(`获取到 ${candles.length} 根K线。开始回测...`);
     
     const result = backtestSimpleBtcTrend(candles);
