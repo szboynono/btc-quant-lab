@@ -8,19 +8,9 @@ import { detectSignal } from "./strategy/simple-trend.js";
 import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
 import { appendSignalLog } from "./log/signal-log.js";
 
-/**
- * 这里的参数，和你现在回测用的强趋势策略保持一致
- */
-const CONFIG = {
-  useTrendFilter: true,
-  useV2Signal: false,   // 现在用 v1，如果以后你想切换，就改成 true
-  stopLossPct: 0.015,   // 1.5% 止损
-  takeProfitPct: 0.04,  // 4% 止盈
-  minAtrPct: 0.01,      // ATR 至少 1% 波动才做（强趋势）
-};
+import strategy from "./config/strategy.json" with { type: "json" };
 
-// 单边手续费（目前只用于参考，不进止损止盈计算）
-const feeRate = 0.0004; // 0.04%
+const CONFIG = strategy;
 
 async function main() {
   console.log("正在从Binance获取BTCUSDT 4小时K线...");

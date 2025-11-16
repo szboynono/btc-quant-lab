@@ -8,13 +8,9 @@ import { detectSignal } from "./strategy/simple-trend.js";
 import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
 import { sendDiscordNotification } from "./notify/notify-discord.js";
 import { appendSignalLog } from "./log/signal-log.js";
+import strategy from "./config/strategy.json" with { type: "json" };
 
-const CONFIG = {
-  useV2Signal: false,
-  stopLossPct: 0.015,
-  takeProfitPct: 0.04,
-  minAtrPct: 0.01, // ATR/price > 1%
-};
+const CONFIG = strategy;
 
 async function runOnce() {
   console.log("正在从Binance获取BTCUSDT 4小时K线...");
