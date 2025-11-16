@@ -1,109 +1,107 @@
-// src/index.ts
 import { fetchBtc4hCandles } from "./exchange/binance.js";
 import {
-  backtestBtcMeanRevert,
-  printBacktestResultMR,
-} from "./backtest/mean-revert-engine.js";
+  backtestSimpleBtcTrend,
+  printBacktestResult,
+} from "./backtest/engine.js";
+
+type ParamCombo = {
+  useV2Signal: boolean;
+  stopLossPct: number;
+  takeProfitPct: number;
+  minAtrPct: number;
+};
 
 async function main() {
   try {
     console.log("正在从Binance获取BTCUSDT 4小时K线...");
     const candles = await fetchBtc4hCandles(3000);
-    console.log(`获取到 ${candles.length} 根K线。开始均值回归策略参数扫描...\n`);
+    console.log(`获取到 ${candles.length} 根K线。`);
 
-    // 简单参数网格：
-    const slList = [0.01, 0.015];          // 1%, 1.5%
-    const tpList = [0.02, 0.03];           // 2%, 3%
-    const bandEnterList = [1.5, 2.0, 2.5]; // 入场带宽：1.5~2.5 * ATR
-    const bandExitList = [0.3, 0.5, 0.8];  // 出场带宽：0.3~0.8 * ATR
-    const atrThreshList = [0.003, 0.005];  // 0.3%, 0.5% 波动
+    // === 1. 训练集 & 测试集切分 ===
+    const splitIndex = Math.floor(candles.length * 0.67);
+    const trainCandles = candles.slice(0, splitIndex);
+    const testCandles = candles.slice(splitIndex);
 
-    let best: {
-      totalReturnPct: number;
-      params: {
-        stopLossPct: number;
-        takeProfitPct: number;
-        bandKEnter: number;
-        bandKExit: number;
-        minAtrPct: number;
-      };
-    } | null = null;
+    console.log(
+      `训练集 K 线: ${trainCandles.length}, 测试集 K 线: ${testCandles.length}`
+    );
 
-    for (const minAtrPct of atrThreshList) {
-      console.log(
-        `\n=== minAtrPct = ${(minAtrPct * 100).toFixed(2)}% ===`
-      );
+    // 参数空间
+    const slList = [0.015, 0.02];
+    const tpList = [0.04, 0.05];
+    const signalVersions = [false, true];
+    const atrThreshList = [0.005, 0.01, 0.015];
 
-      for (const bandKEnter of bandEnterList) {
-        for (const bandKExit of bandExitList) {
-          if (bandKExit >= bandKEnter) continue; // 出场带宽必须比入场小
+    // 引入风险惩罚因子
+    const alpha = 0.5; // 惩罚回撤权重，可调
 
-          for (const sl of slList) {
-            for (const tp of tpList) {
-              const result = backtestBtcMeanRevert(candles, {
-                stopLossPct: sl,
-                takeProfitPct: tp,
-                bandKEnter,
-                bandKExit,
-                minAtrPct,
-              });
+    let bestOnTrain: any = null;
 
-              if (!result) continue;
+    console.log("\n=== 训练集参数扫描结果 ===");
+    for (const useV2Signal of signalVersions) {
+      console.log(`\n--- 使用 ${useV2Signal ? "v2" : "v1"} signal ---`);
+      for (const minAtrPct of atrThreshList) {
+        console.log(`  >> minAtrPct = ${(minAtrPct * 100).toFixed(2)}%`);
 
-              console.log(
-                `bandEnter=${bandKEnter}  bandExit=${bandKExit}  SL=${(
-                  sl * 100
-                ).toFixed(1)}%  TP=${(tp * 100).toFixed(
-                  1
-                )}% -> 总收益 ${result.totalReturnPct.toFixed(
-                  2
-                )}% | 胜率 ${result.winRate.toFixed(
-                  2
-                )}% | 笔数 ${result.totalTrades}`
-              );
+        for (const sl of slList) {
+          for (const tp of tpList) {
+            const result = backtestSimpleBtcTrend(trainCandles, {
+              useTrendFilter: true,
+              useV2Signal,
+              stopLossPct: sl,
+              takeProfitPct: tp,
+              minAtrPct,
+            });
 
-              if (
-                !best ||
-                result.totalReturnPct > best.totalReturnPct
-              ) {
-                best = {
-                  totalReturnPct: result.totalReturnPct,
-                  params: {
-                    stopLossPct: sl,
-                    takeProfitPct: tp,
-                    bandKEnter,
-                    bandKExit,
-                    minAtrPct,
-                  },
-                };
-              }
+            if (!result) continue;
+
+            console.log(
+              `    SL=${(sl * 100).toFixed(1)}%  TP=${(tp * 100).toFixed(
+                1
+              )}% -> 总收益 ${result.totalReturnPct.toFixed(
+                2
+              )}% | 胜率 ${result.winRate.toFixed(2)}% | 笔数 ${
+                result.totalTrades
+              } | 回撤 ${result.maxDrawdownPct.toFixed(2)}%`
+            );
+
+            const score =
+              result.totalReturnPct - alpha * result.maxDrawdownPct;
+
+            if (!bestOnTrain || score > bestOnTrain.score) {
+              bestOnTrain = {
+                params: { useV2Signal, stopLossPct: sl, takeProfitPct: tp, minAtrPct },
+                totalReturnPct: result.totalReturnPct,
+                winRate: result.winRate,
+                totalTrades: result.totalTrades,
+                maxDrawdownPct: result.maxDrawdownPct,
+                score,
+              };
             }
           }
         }
       }
     }
 
-    if (!best) {
-      console.log("没有找到任何有效参数组合。");
-      return;
-    }
+    if (!bestOnTrain) return console.log("训练集无有效参数");
 
-    console.log("\n=== 最优参数组合（在整段 3000 根上） ===");
+    console.log("\n=== 训练集最优参数（按 score） ===");
     console.log({
-      totalReturnPct: best.totalReturnPct.toFixed(2) + "%",
-      SL: best.params.stopLossPct,
-      TP: best.params.takeProfitPct,
-      bandKEnter: best.params.bandKEnter,
-      bandKExit: best.params.bandKExit,
-      minAtrPct: best.params.minAtrPct,
+      ...bestOnTrain.params,
+      totalReturnPct: bestOnTrain.totalReturnPct.toFixed(2) + "%",
+      winRate: bestOnTrain.winRate.toFixed(2) + "%",
+      maxDrawdown: bestOnTrain.maxDrawdownPct.toFixed(2) + "%",
+      score: bestOnTrain.score.toFixed(2),
     });
 
-    // 用最优参数打印详细结果
-    const finalResult = backtestBtcMeanRevert(candles, best.params);
-    if (finalResult) {
-      console.log("\n=== 最优参数详细回测结果 ===");
-      printBacktestResultMR(finalResult, candles.length);
-    }
+    // === 测试集验证 ===
+    console.log("\n=== 在测试集上检验最优参数 ===");
+    const testResult = backtestSimpleBtcTrend(testCandles, {
+      useTrendFilter: true,
+      ...bestOnTrain.params,
+    });
+
+    printBacktestResult(testResult, testCandles.length);
   } catch (err) {
     console.error("运行出错:", err);
   }
