@@ -18,20 +18,16 @@ export interface BacktestResult {
  */
 export interface BacktestOptions {
   useTrendFilter?: boolean;  // 是否使用 200EMA 多头过滤
-  stopLossPct?: number;      // 止损百分比，例如 0.02 = 2%
-  takeProfitPct?: number;    // 止盈百分比，例如 0.04 = 4%
+  stopLossPct?: number;      // 止损百分比
+  takeProfitPct?: number;    // 止盈百分比
 }
 
+// 交易手续费（单边）
+// 0.04% = 0.0004，真实世界里算便宜的
+const feeRate = 0.0004;
+
 /**
- * 简单 BTC 趋势策略回测（带可选多头过滤 + 固定止损/止盈）
- *
- * - 用 4 小时收盘价
- * - 50EMA 定义信号（交给 detectSignal）
- * - 200EMA + 50EMA 可以定义「多头趋势」作为过滤
- * - 进场后：
- *   1. low <= 止损价 -> 用止损价平仓
- *   2. high >= 止盈价 -> 用止盈价平仓
- *   3. 信号给出 CLOSE_LONG -> 用收盘价平仓
+ * 简单 BTC 趋势策略回测（带手续费版本）
  */
 export function backtestSimpleBtcTrend(
   candles: Candle[],
@@ -39,8 +35,8 @@ export function backtestSimpleBtcTrend(
 ): BacktestResult | null {
   const {
     useTrendFilter = true,
-    stopLossPct = 0.02,   // 默认 2% 止损
-    takeProfitPct = 0.04, // 默认 4% 止盈
+    stopLossPct = 0.02,
+    takeProfitPct = 0.04,
   } = options;
 
   if (candles.length < 200) {
@@ -58,7 +54,7 @@ export function backtestSimpleBtcTrend(
 
   const trades: Trade[] = [];
 
-  // 从 200 开始，保证 EMA200 已经“暖机”
+  // 从第200根开始（保证EMA暖机）
   for (let i = 200; i < candles.length; i++) {
     const price = closes[i]!;
     const prevPrice = closes[i - 1]!;
@@ -68,49 +64,50 @@ export function backtestSimpleBtcTrend(
     const currentCandle = candles[i]!;
     const { high, low } = currentCandle;
 
-    // 多头趋势过滤（可开关）：价格和 50EMA 都在 200EMA 上方
     const isUpTrend = price > e200 && e50 > e200;
     const trendOk = useTrendFilter ? isUpTrend : true;
 
-    // 原有信号：只基于 50EMA 穿越 + 是否持仓
-    const signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
-
     if (!inPosition) {
-      // 开仓：必须有 LONG 信号，且趋势通过过滤
+      const signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
+
       if (signal === "LONG" && trendOk) {
         inPosition = true;
         entryPrice = price;
         entryTime = currentCandle.closeTime;
       }
     } else {
-      // 已持有多单：检查止损 / 止盈 / EMA 平仓
-
-      // 固定止损 / 止盈价
+      // 持仓状态 — 只看 SL/TP，不看 EMA
       const stopPrice = entryPrice * (1 - stopLossPct);
       const tpPrice = entryPrice * (1 + takeProfitPct);
 
       let shouldExit = false;
-      let exitPrice = price; // 默认用当前收盘价，如果触发 SL/TP 会被覆盖
+      let exitPrice = price;
+      let exitReason: "SL" | "TP" | "EMA" = "EMA";
 
-      // 1) 止损优先：本根最低价打到或跌破止损
+      // 止损优先
       if (low <= stopPrice) {
         shouldExit = true;
         exitPrice = stopPrice;
+        exitReason = "SL";
       }
-      // 2) 止盈：本根最高价打到或超过止盈（前提是没先触发止损）
+      // 止盈
       else if (high >= tpPrice) {
         shouldExit = true;
         exitPrice = tpPrice;
-      }
-      // 3) EMA 跌破信号：用收盘价平仓
-      else if (signal === "CLOSE_LONG") {
-        shouldExit = true;
-        exitPrice = price;
+        exitReason = "TP";
       }
 
       if (shouldExit) {
         const exitTime = currentCandle.closeTime;
-        const pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+
+        // 毛收益（不含手续费）
+        const grossPnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+
+        // 手续费（双边）
+        const feePct = feeRate * 2 * 100;
+
+        // 最终收益
+        const pnlPct = grossPnlPct - feePct;
 
         trades.push({
           entryTime,
@@ -118,6 +115,7 @@ export function backtestSimpleBtcTrend(
           entryPrice,
           exitPrice,
           pnlPct,
+          exitReason,
         });
 
         inPosition = false;
@@ -125,12 +123,15 @@ export function backtestSimpleBtcTrend(
     }
   }
 
-  // Close final position if still open
+  // 最后一笔强制平仓
   if (inPosition) {
     const last = candles[candles.length - 1]!;
     const exitPrice = last.close;
     const exitTime = last.closeTime;
-    const pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+
+    const grossPnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+    const feePct = feeRate * 2 * 100;
+    const pnlPct = grossPnlPct - feePct;
 
     trades.push({
       entryTime,
@@ -138,6 +139,7 @@ export function backtestSimpleBtcTrend(
       entryPrice,
       exitPrice,
       pnlPct,
+      exitReason: "EMA",
     });
   }
 
@@ -157,22 +159,29 @@ export function backtestSimpleBtcTrend(
 }
 
 /**
- * 打印回测结果
+ * 打印结果
  */
 export function printBacktestResult(
   result: BacktestResult,
   candleCount: number
 ): void {
-  console.log("=== 简单BTC趋势策略回测结果（趋势过滤 + 止损/止盈） ===");
+  console.log("=== 简单BTC趋势策略回测（含手续费） ===");
   console.log("K线数量:", candleCount);
   console.log("交易笔数:", result.totalTrades);
-  console.log(
-    "总收益（简单相加，未复利）:",
-    result.totalReturnPct.toFixed(2),
-    "%"
-  );
+  console.log("总收益:", result.totalReturnPct.toFixed(2), "%");
   console.log("平均每笔收益:", result.avgReturnPct.toFixed(2), "%");
   console.log("胜率:", result.winRate.toFixed(2), "%");
+
+  const slCount = result.trades.filter((t) => t.exitReason === "SL").length;
+  const tpCount = result.trades.filter((t) => t.exitReason === "TP").length;
+  const emaCount = result.trades.filter((t) => t.exitReason === "EMA").length;
+
+  console.log("退出方式统计:", {
+    SL: slCount,
+    TP: tpCount,
+    EMA: emaCount,
+  });
+
   console.log("前几笔交易示例:");
   console.log(
     result.trades.slice(0, 5).map((t) => ({
@@ -181,6 +190,7 @@ export function printBacktestResult(
       entryPrice: t.entryPrice,
       exitPrice: t.exitPrice,
       pnlPct: t.pnlPct.toFixed(2) + "%",
+      exitReason: t.exitReason,
     }))
   );
 }

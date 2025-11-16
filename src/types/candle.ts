@@ -20,4 +20,5 @@ export interface Trade {
   entryPrice: number;
   exitPrice: number;
   pnlPct: number;
+  exitReason?: "SL" | "TP" | "EMA";
 }
