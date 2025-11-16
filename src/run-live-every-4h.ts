@@ -8,9 +8,12 @@ import { detectSignal } from "./strategy/simple-trend.js";
 import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
 import { sendDiscordNotification } from "./notify/notify-discord.js";
 import { appendSignalLog } from "./log/signal-log.js";
+
 import strategy from "./config/strategy.json" with { type: "json" };
+import position from "./config/position.json" with { type: "json" };
 
 const CONFIG = strategy;
+const POSITION = position;
 
 async function runOnce() {
   console.log("正在从Binance获取BTCUSDT 4小时K线...");
@@ -70,7 +73,7 @@ async function runOnce() {
     ", minAtrPct=" + (CONFIG.minAtrPct * 100).toFixed(2) + "%"
   );
 
-  const trendOk = isUpTrend && strongSlope && enoughVol;
+  const trendOk = CONFIG.useTrendFilter ? (isUpTrend && strongSlope && enoughVol) : true;
 
   // 假设当前空仓
   const inPosition = false;
@@ -86,7 +89,7 @@ async function runOnce() {
   console.log("原始信号 rawSignal:", rawSignal);
   console.log("trendOk:", trendOk);
 
-  // === 不管有没有信号，先算出“如果进场”的 SL/TP 和杠杆风险，用于日志 ===
+  // === 预先计算 SL / TP ===
   const entryPrice = price;
   const stopLoss = entryPrice * (1 - CONFIG.stopLossPct);
   const takeProfit = entryPrice * (1 + CONFIG.takeProfitPct);
@@ -103,6 +106,15 @@ async function runOnce() {
     tpPctOnEquity: tpPct * 5,
   };
 
+  // === 仓位建议（从 position.json 里读） ===
+  const accountSize = POSITION.accountSizeUSDT;
+  const capitalPct = POSITION.capitalPctPerTrade;
+  const leverage = POSITION.defaultLeverage;
+
+  const capitalToUse = accountSize * capitalPct;
+  const notional = capitalToUse * leverage;
+  const qtyBTC = notional / entryPrice;
+
   // === 每次都写一条 log（包括观望的情况） ===
   await appendSignalLog({
     time: new Date(candle.closeTime).toISOString(),
@@ -116,6 +128,14 @@ async function runOnce() {
     atrPct: atrPct * 100,
     leverage3x: lev3,
     leverage5x: lev5,
+    positionSuggestion: {
+      accountSizeUSDT: accountSize,
+      capitalPctPerTrade: capitalPct,
+      leverage,
+      capitalToUse,
+      notional,
+      qtyBTC,
+    },
   });
 
   // 如果没有有效多头信号：只写了 log，不发推送
@@ -125,7 +145,7 @@ async function runOnce() {
     return;
   }
 
-  // === 有有效的多头信号：再额外提示 + 推送 ===
+  // === 有有效的多头信号：额外提示 + 推送 ===
   console.log("\n>>> 检测到 ✅ 多头入场信号！");
   console.log("入场价:", entryPrice.toFixed(2));
   console.log(
@@ -140,20 +160,34 @@ async function runOnce() {
         2
       )}%, 5x: ${lev5.tpPctOnEquity.toFixed(2)}%`
   );
+  console.log("\n=== 仓位建议（策略账户维度） ===");
+  console.log(`策略账户资金: ${accountSize.toFixed(2)} USDT`);
+  console.log(
+    `本次计划使用: ${capitalToUse.toFixed(2)} USDT (${(capitalPct * 100).toFixed(
+      0
+    )}% 仓位)`
+  );
+  console.log(
+    `默认杠杆: ${leverage}x, 名义仓位: ${notional.toFixed(2)} USDT, 建议数量: ${qtyBTC.toFixed(
+      4
+    )} BTC`
+  );
 
   const title = "BTC 4H 多头信号 (策略 v1)";
   const text = [
     `价格: ${entryPrice.toFixed(2)}`,
     `SL: ${stopLoss.toFixed(2)} (${slPct.toFixed(2)}%)`,
     `TP: ${takeProfit.toFixed(2)} (+${tpPct.toFixed(2)}%)`,
-    `3x: SL ${lev3.slPctOnEquity.toFixed(1)}%, TP +${lev3.tpPctOnEquity.toFixed(
-      1
-    )}%`,
-    `5x: SL ${lev5.slPctOnEquity.toFixed(1)}%, TP +${lev5.tpPctOnEquity.toFixed(
-      1
-    )}%`,
+    `3x: SL ${lev3.slPctOnEquity.toFixed(1)}%, TP +${lev3.tpPctOnEquity.toFixed(1)}%`,
+    `5x: SL ${lev5.slPctOnEquity.toFixed(1)}%, TP +${lev5.tpPctOnEquity.toFixed(1)}%`,
     `EMA50: ${e50.toFixed(2)}, EMA200: ${e200.toFixed(2)}`,
     `ATR: ${(atrPct * 100).toFixed(2)}%`,
+    "",
+    `【仓位建议 - 策略账户】`,
+    `账户资金: ${accountSize.toFixed(2)} USDT`,
+    `本次使用: ${capitalToUse.toFixed(2)} USDT (${(capitalPct * 100).toFixed(0)}% 仓位)`,
+    `默认杠杆: ${leverage}x, 名义仓位: ${notional.toFixed(2)} USDT`,
+    `建议下单数量: ${qtyBTC.toFixed(4)} BTC`,
   ].join("\n");
 
   await sendDiscordNotification({ title, text });

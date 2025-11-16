@@ -9,8 +9,10 @@ import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
 import { appendSignalLog } from "./log/signal-log.js";
 
 import strategy from "./config/strategy.json" with { type: "json" };
+import position from "./config/position.json" with { type: "json" };
 
 const CONFIG = strategy;
+const POSITION = position;
 
 async function main() {
   console.log("正在从Binance获取BTCUSDT 4小时K线...");
@@ -61,9 +63,7 @@ async function analyzeLatestCandle(
   console.log("收盘价格:", price.toFixed(2));
   console.log("EMA50:", e50.toFixed(2));
   console.log("EMA200:", e200.toFixed(2));
-  console.log(
-    `ATR(14): ${atrValue.toFixed(2)} (${atrPct.toFixed(2)}%)`
-  );
+  console.log(`ATR(14): ${atrValue.toFixed(2)} (${atrPct.toFixed(2)}%)`);
   console.log("200EMA 斜率:", ema200Slope.toFixed(4));
 
   // === 趋势过滤 ===
@@ -74,10 +74,7 @@ async function analyzeLatestCandle(
   const trendOk = cfg.useTrendFilter ? (isUpTrend && strongSlope && enoughVol) : true;
 
   console.log("\n=== 趋势过滤 ===");
-  console.log(
-    "多头结构 (price > EMA200 && EMA50 > EMA200):",
-    isUpTrend
-  );
+  console.log("多头结构 (price > EMA200 && EMA50 > EMA200):", isUpTrend);
   console.log("200EMA 向上 (slope > 0):", strongSlope);
   console.log(
     `波动率足够 (ATR/price > minAtrPct):`,
@@ -91,13 +88,7 @@ async function analyzeLatestCandle(
   if (cfg.useV2Signal) {
     rawSignal = detectSignalV2(candles, lastIndex, ema50, ema200, false);
   } else {
-    rawSignal = detectSignal(
-      price,
-      prevPrice,
-      e50,
-      prevE50,
-      false
-    );
+    rawSignal = detectSignal(price, prevPrice, e50, prevE50, false);
   }
 
   console.log("\n=== 信号判断（假设当前空仓） ===");
@@ -105,9 +96,7 @@ async function analyzeLatestCandle(
   console.log("trendOk:", trendOk);
 
   if (rawSignal !== "LONG" || !trendOk) {
-    console.log(
-      "\n>>> 建议：❌ 观望（要么没突破，要么趋势过滤不通过）"
-    );
+    console.log("\n>>> 建议：❌ 观望（要么没突破，要么趋势过滤不通过）");
     return;
   }
 
@@ -117,19 +106,18 @@ async function analyzeLatestCandle(
   const tpPrice = entryPrice * (1 + cfg.takeProfitPct);
 
   const rr = cfg.takeProfitPct / cfg.stopLossPct;
-  
+
   const slPct = -cfg.stopLossPct * 100;
   const tpPct = cfg.takeProfitPct * 100;
-  
-  // 杠杆账户维度的盈亏
-  const lev3 = {
-    slPctOnEquity: slPct * 3,
-    tpPctOnEquity: tpPct * 3,
-  };
-  const lev5 = {
-    slPctOnEquity: slPct * 5,
-    tpPctOnEquity: tpPct * 5,
-  };
+
+  // === 仓位建议（读取 position.json） ===
+  const accountSize = POSITION.accountSizeUSDT;
+  const capitalPct = POSITION.capitalPctPerTrade; // 0~1
+  const leverage = POSITION.defaultLeverage;
+
+  const capitalToUse = accountSize * capitalPct;     // 本次计划用多少USDT
+  const notional = capitalToUse * leverage;          // 名义仓位
+  const qtyBTC = notional / entryPrice;             // 建议下单 BTC 数量
 
   console.log("\n>>> 建议：✅ 可以考虑开多（满足趋势 + 突破条件）");
   console.log("建议开仓价(参考):", entryPrice.toFixed(2));
@@ -142,6 +130,16 @@ async function analyzeLatestCandle(
     tpPrice.toFixed(2)
   );
   console.log(`名义盈亏比 (R:R): 1 : ${rr.toFixed(2)}`);
+
+  console.log("\n=== 仓位建议（策略账户维度） ===");
+  console.log(`策略账户资金: ${accountSize.toFixed(2)} USDT`);
+  console.log(
+    `本次计划使用: ${capitalToUse.toFixed(2)} USDT ` +
+      `(${(capitalPct * 100).toFixed(0)}% 仓位)`
+  );
+  console.log(`杠杆: ${leverage}x`);
+  console.log(`名义仓位: ${notional.toFixed(2)} USDT`);
+  console.log(`建议下单数量: ${qtyBTC.toFixed(4)} BTC`);
 
   // === 杠杆情景说明（不控制仓位，只给你直观感觉） ===
   console.log("\n=== 杠杆盈亏大致参考（不含手续费） ===");
@@ -160,10 +158,10 @@ async function analyzeLatestCandle(
   }
 
   console.log(
-    "\n⚠️ 提醒：上面只是按\"全仓都用这笔策略\"估算。\n" +
+    "\n⚠️ 提醒：上面只是按\"策略账户\" + \"默认杠杆\"估算。\n" +
       "    你实际可以：\n" +
-      "    - 只用整体资金的一部分参与（比如 20% 仓位）\n" +
-      "    - 杠杆 3x-5x 内自己选一个你心理舒服的档位。"
+      "    - 只用整体资金的一部分做策略账户（比如 1000U / 3000U）\n" +
+      "    - 在 3x-5x 内选一个你心理舒服的档位。"
   );
 
   // === 写入日志 ===
@@ -177,8 +175,16 @@ async function analyzeLatestCandle(
     ema50: e50,
     ema200: e200,
     atrPct: (atrValue / price) * 100,
-    leverage3x: lev3,
-    leverage5x: lev5,
+    leverage3x: { slPctOnEquity: slPct * 3, tpPctOnEquity: tpPct * 3 },
+    leverage5x: { slPctOnEquity: slPct * 5, tpPctOnEquity: tpPct * 5 },
+    positionSuggestion: {
+      accountSizeUSDT: accountSize,
+      capitalPctPerTrade: capitalPct,
+      leverage,
+      capitalToUse,
+      notional,
+      qtyBTC,
+    },
   });
 
   console.log("\n>>> 已写入 signal-log.jsonl");

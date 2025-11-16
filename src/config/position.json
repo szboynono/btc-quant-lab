@@ -1,0 +1,6 @@
+{
+  "accountSizeUSDT": 1000,
+  "capitalPctPerTrade": 1.0,
+  "defaultLeverage": 3,
+  "maxLeverage": 5
+}

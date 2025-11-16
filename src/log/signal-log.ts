@@ -24,6 +24,16 @@ export interface SignalLogEntry {
     slPctOnEquity: number;
     tpPctOnEquity: number;
   };
+
+  // 可选：仓位建议（用于 live 运行时记录）
+  positionSuggestion?: {
+    accountSizeUSDT: number;
+    capitalPctPerTrade: number;
+    leverage: number;
+    capitalToUse: number; // USDT
+    notional: number;     // 名义价值（USDT）
+    qtyBTC: number;       // 购买数量（BTC）
+  };
 }
 
 export async function appendSignalLog(entry: SignalLogEntry): Promise<void> {
