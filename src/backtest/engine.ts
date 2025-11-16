@@ -1,6 +1,7 @@
 import type { Candle, Trade } from "../types/candle.js";
 import { ema } from "../indicators/ema.js";
 import { detectSignal } from "../strategy/simple-trend.js";
+import { detectSignalV2 } from "../strategy/simple-trend-v2.js";
 
 /**
  * 回测统计结果
@@ -17,9 +18,10 @@ export interface BacktestResult {
  * 回测参数配置
  */
 export interface BacktestOptions {
-  useTrendFilter?: boolean;  // 是否使用 200EMA 多头过滤
-  stopLossPct?: number;      // 止损百分比
-  takeProfitPct?: number;    // 止盈百分比
+  useTrendFilter?: boolean;   // 是否使用 200EMA 多头过滤
+  stopLossPct?: number;       // 止损百分比
+  takeProfitPct?: number;     // 止盈百分比
+  useV2Signal?: boolean;      // 是否使用 V2 信号
 }
 
 // 交易手续费（单边）
@@ -37,6 +39,7 @@ export function backtestSimpleBtcTrend(
     useTrendFilter = true,
     stopLossPct = 0.02,
     takeProfitPct = 0.04,
+    useV2Signal = false,
   } = options;
 
   if (candles.length < 200) {
@@ -68,7 +71,15 @@ export function backtestSimpleBtcTrend(
     const trendOk = useTrendFilter ? isUpTrend : true;
 
     if (!inPosition) {
-      const signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
+      let signal: "LONG" | "CLOSE_LONG" | "HOLD";
+
+      if (useV2Signal) {
+        // v2: 回踩确认再突破
+        signal = detectSignalV2(candles, i, ema50, ema200, inPosition);
+      } else {
+        // v1: 简单突破
+        signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
+      }
 
       if (signal === "LONG" && trendOk) {
         inPosition = true;
