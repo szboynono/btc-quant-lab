@@ -143,24 +143,6 @@ async function runOnce() {
   if (!(rawSignal === "LONG" && trendOk)) {
     console.log("\n>>> 建议：❌ 观望（要么没突破，要么趋势过滤不通过）");
     console.log("（本次状态已写入 signal-log.jsonl）");
-    const title = "BTC 4H 多头信号 (策略 v1)";
-  const text = [
-    `价格: ${entryPrice.toFixed(2)}`,
-    `SL: ${stopLoss.toFixed(2)} (${slPct.toFixed(2)}%)`,
-    `TP: ${takeProfit.toFixed(2)} (+${tpPct.toFixed(2)}%)`,
-    `3x: SL ${lev3.slPctOnEquity.toFixed(1)}%, TP +${lev3.tpPctOnEquity.toFixed(1)}%`,
-    `5x: SL ${lev5.slPctOnEquity.toFixed(1)}%, TP +${lev5.tpPctOnEquity.toFixed(1)}%`,
-    `EMA50: ${e50.toFixed(2)}, EMA200: ${e200.toFixed(2)}`,
-    `ATR: ${(atrPct * 100).toFixed(2)}%`,
-    "",
-    `【仓位建议 - 策略账户】`,
-    `账户资金: ${accountSize.toFixed(2)} USDT`,
-    `本次使用: ${capitalToUse.toFixed(2)} USDT (${(capitalPct * 100).toFixed(0)}% 仓位)`,
-    `默认杠杆: ${leverage}x, 名义仓位: ${notional.toFixed(2)} USDT`,
-    `建议下单数量: ${qtyBTC.toFixed(4)} BTC`,
-  ].join("\n");
-
-  await sendDiscordNotification({ title, text });
     return;
   }
 
