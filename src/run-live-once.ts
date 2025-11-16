@@ -1,11 +1,12 @@
 // src/run-live-once.ts
-
+import "dotenv/config";
 import { fetchBtc4hCandles } from "./exchange/binance.js";
 import type { Candle } from "./types/candle.js";
 import { ema } from "./indicators/ema.js";
 import { atr } from "./indicators/atr.js";
 import { detectSignal } from "./strategy/simple-trend.js";
 import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
+import { appendSignalLog } from "./log/signal-log.js";
 
 /**
  * 这里的参数，和你现在回测用的强趋势策略保持一致
@@ -31,13 +32,13 @@ async function main() {
     return;
   }
 
-  analyzeLatestCandle(candles, CONFIG);
+  await analyzeLatestCandle(candles, CONFIG);
 }
 
-function analyzeLatestCandle(
+async function analyzeLatestCandle(
   candles: Candle[],
   cfg: typeof CONFIG
-): void {
+): Promise<void> {
   const closes = candles.map((c) => c.close);
   const ema50 = ema(closes, 50);
   const ema200 = ema(closes, 200);
@@ -126,6 +127,19 @@ function analyzeLatestCandle(
   const tpPrice = entryPrice * (1 + cfg.takeProfitPct);
 
   const rr = cfg.takeProfitPct / cfg.stopLossPct;
+  
+  const slPct = -cfg.stopLossPct * 100;
+  const tpPct = cfg.takeProfitPct * 100;
+  
+  // 杠杆账户维度的盈亏
+  const lev3 = {
+    slPctOnEquity: slPct * 3,
+    tpPctOnEquity: tpPct * 3,
+  };
+  const lev5 = {
+    slPctOnEquity: slPct * 5,
+    tpPctOnEquity: tpPct * 5,
+  };
 
   console.log("\n>>> 建议：✅ 可以考虑开多（满足趋势 + 突破条件）");
   console.log("建议开仓价(参考):", entryPrice.toFixed(2));
@@ -156,11 +170,28 @@ function analyzeLatestCandle(
   }
 
   console.log(
-    "\n⚠️ 提醒：上面只是按“全仓都用这笔策略”估算。\n" +
+    "\n⚠️ 提醒：上面只是按\"全仓都用这笔策略\"估算。\n" +
       "    你实际可以：\n" +
       "    - 只用整体资金的一部分参与（比如 20% 仓位）\n" +
       "    - 杠杆 3x-5x 内自己选一个你心理舒服的档位。"
   );
+
+  // === 写入日志 ===
+  await appendSignalLog({
+    time: new Date(lastCandle.closeTime).toISOString(),
+    price: entryPrice,
+    stopLoss: stopPrice,
+    takeProfit: tpPrice,
+    rawSignal,
+    trendOk,
+    ema50: e50,
+    ema200: e200,
+    atrPct: (atrValue / price) * 100,
+    leverage3x: lev3,
+    leverage5x: lev5,
+  });
+
+  console.log("\n>>> 已写入 signal-log.jsonl");
 }
 
 main().catch((err) => {

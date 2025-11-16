@@ -4,12 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "tsx src/index.ts",
     "index-multi-window": "tsx src/index-multi-window.ts",
     "index-global-summary": "tsx src/index-global-summary.ts",
     "index-position-sizing": "tsx src/index-position-sizing.ts",
-    "live": "tsx src/run-live-once.ts"
+    "live": "tsx src/run-live-once.ts",
+    "live-every-4h": "tsx src/run-live-every-4h.ts"
   },
   "repository": {
     "type": "git",
@@ -25,6 +27,8 @@
   "homepage": "https://github.com/szboynono/btc-quant-lab#readme",
   "dependencies": {
     "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "node-fetch": "^3.3.2",
     "path": "^0.12.7",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
