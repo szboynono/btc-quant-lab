@@ -2,6 +2,7 @@ import type { Candle, Trade } from "../types/candle.js";
 import { ema } from "../indicators/ema.js";
 import { detectSignal } from "../strategy/simple-trend.js";
 import { detectSignalV2 } from "../strategy/simple-trend-v2.js";
+import { atr } from "../indicators/atr.js";
 
 /**
  * 回测统计结果
@@ -18,10 +19,11 @@ export interface BacktestResult {
  * 回测参数配置
  */
 export interface BacktestOptions {
-  useTrendFilter?: boolean;   // 是否使用 200EMA 多头过滤
-  stopLossPct?: number;       // 止损百分比
-  takeProfitPct?: number;     // 止盈百分比
-  useV2Signal?: boolean;      // 是否使用 V2 信号
+  useTrendFilter?: boolean; // 是否使用 200EMA 多头过滤 + 强度过滤
+  stopLossPct?: number; // 止损百分比
+  takeProfitPct?: number; // 止盈百分比
+  useV2Signal?: boolean; // 是否使用 V2 信号
+  minAtrPct?: number; // ✅ 最小 ATR 波动率阈值
 }
 
 // 交易手续费（单边）
@@ -40,6 +42,7 @@ export function backtestSimpleBtcTrend(
     stopLossPct = 0.02,
     takeProfitPct = 0.04,
     useV2Signal = false,
+    minAtrPct = 0.01, // ✅ 默认改成 1% 波动，不要 1.5% 那么严
   } = options;
 
   if (candles.length < 200) {
@@ -50,6 +53,7 @@ export function backtestSimpleBtcTrend(
   const closes = candles.map((c) => c.close);
   const ema50 = ema(closes, 50);
   const ema200 = ema(closes, 200);
+  const atr14 = atr(candles, 14); // 新增 ATR
 
   let inPosition = false;
   let entryPrice = 0;
@@ -67,8 +71,29 @@ export function backtestSimpleBtcTrend(
     const currentCandle = candles[i]!;
     const { high, low } = currentCandle;
 
+    // === 行情过滤（多头结构 + 斜率 + 波动） ===
+    const atrValue = atr14[i];
+    if (atrValue === undefined) {
+      // ATR 数据不足，跳过本轮
+      continue;
+    }
+    const atrPct = atrValue / price; // ATR 占价格比例，粗略波动率
+
+    const ema200Prev = ema200[i - 1];
+    if (ema200Prev === undefined) {
+      // EMA200 数据不足，跳过本轮
+      continue;
+    }
+    const ema200Slope = e200 - ema200Prev; // 200EMA 斜率
+
+    // 条件1：多头结构
     const isUpTrend = price > e200 && e50 > e200;
-    const trendOk = useTrendFilter ? isUpTrend : true;
+    // 条件2：200EMA 要往上走，不是横着/往下
+    const strongSlope = ema200Slope > 0;
+    const enoughVol = atrPct > minAtrPct;
+    const trendOk = useTrendFilter
+      ? isUpTrend && strongSlope && enoughVol
+      : true;
 
     if (!inPosition) {
       let signal: "LONG" | "CLOSE_LONG" | "HOLD";
