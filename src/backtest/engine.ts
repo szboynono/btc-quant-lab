@@ -70,6 +70,7 @@ export function backtestSimpleBtcTrend(
     const e200 = ema200[i]!;
     const currentCandle = candles[i]!;
     const { high, low } = currentCandle;
+    
 
     // === 行情过滤（多头结构 + 斜率 + 波动） ===
     const atrValue = atr14[i];
