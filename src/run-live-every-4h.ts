@@ -1,6 +1,7 @@
 // src/run-every-4h.ts
 import "dotenv/config";
-import { fetchBtc4hCandles } from "./exchange/binance.js";
+// import { fetchBtc4hCandles } from "./exchange/binance.js";
+import { fetchBtc4hCandles } from "./exchange/htx.js";
 import type { Candle } from "./types/candle.js";
 import { ema } from "./indicators/ema.js";
 import { atr } from "./indicators/atr.js";
@@ -16,7 +17,7 @@ const CONFIG = strategy;
 const POSITION = position;
 
 async function runOnce() {
-  console.log("正在从Binance获取BTCUSDT 4小时K线...");
+  console.log("正在从 HTX 获取BTCUSDT 4小时K线...");
   const candles = await fetchBtc4hCandles(3000);
   console.log(`获取到 ${candles.length} 根K线。`);
 
