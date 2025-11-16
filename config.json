@@ -1,0 +1,16 @@
+{
+  "candlesLimit": 3000,
+
+  "trend": {
+    "useTrendFilter": true,
+    "useV2Signal": false,
+    "stopLossPct": 0.015,
+    "takeProfitPct": 0.04,
+    "minAtrPct": 0.01
+  },
+
+  "risk": {
+    "initialCapital": 1000,
+    "leverageList": [3, 5]
+  }
+}

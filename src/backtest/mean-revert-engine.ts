@@ -69,6 +69,11 @@ export function backtestBtcMeanRevert(
       continue;
     }
 
+    // Safety: atrVal may be undefined if ATR data is not ready
+    if (typeof atrVal !== "number" || !Number.isFinite(atrVal)) {
+      continue;
+    }
+
     const atrPct = atrVal / price;
     if (atrPct < minAtrPct) {
       // 波动太小，不玩

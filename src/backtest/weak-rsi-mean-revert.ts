@@ -1,60 +1,50 @@
 import type { Candle, Trade } from "../types/candle.js";
+import type { BacktestResult } from "./engine.js";
 import { ema } from "../indicators/ema.js";
-import { detectSignal } from "../strategy/simple-trend.js";
-import { detectSignalV2 } from "../strategy/simple-trend-v2.js";
 import { atr } from "../indicators/atr.js";
 import { rsi } from "../indicators/rsi.js";
 
-/**
- * 回测统计结果
- */
-export interface BacktestResult {
-  totalTrades: number;
-  totalReturnPct: number;        // 简单相加的百分比
-  avgReturnPct: number;
-  winRate: number;
-  trades: Trade[];
-  equityCurve: { time: number; equity: number }[]; // 权益曲线（以 1 为初始）
-  maxDrawdownPct: number;        // 最大回撤（%）
-  annualizedReturnPct: number;   // 粗略年化收益率（%）
-}
-
-/**
- * 回测参数配置
- */
-export interface BacktestOptions {
-  useTrendFilter?: boolean;   // 是否使用 200EMA 多头过滤 + 强度过滤
-  stopLossPct?: number;       // 止损百分比（比如 0.02 = 2%）
-  takeProfitPct?: number;     // 止盈百分比
-  useV2Signal?: boolean;      // 是否使用 V2 信号
-  minAtrPct?: number;         // 最小 ATR 波动率阈值（ATR / price）
-  // 下面两个是新的 RSI 过滤参数
-  maxRsiForEntry?: number;    // 开多时 RSI 不得高于多少，默认 70
-  minRsiForEntry?: number;    // 开多时 RSI 不得低于多少，默认 30（防止刀口接飞刀）
-}
-
 // 交易手续费（单边）
-const feeRate = 0.0004; // 0.04%
+const feeRate = 0.0004;
+
+export interface WeakRsiOptions {
+  // 震荡过滤：ATR / price 在这个区间内认为是“可以玩均值回归的波动”
+  minAtrPct?: number;   // 默认 0.3%
+  maxAtrPct?: number;   // 默认 1.0%
+
+  // RSI 开仓/平仓阈值
+  rsiBuy?: number;      // 默认 35 以下认为超跌
+  rsiSell?: number;     // 默认 50 回到均值附近就走
+
+  // 止损止盈
+  stopLossPct?: number; // 默认 1% 止损
+  takeProfitPct?: number; // 默认 2% 止盈
+
+  // 趋势过滤相关
+  useTrendFilter?: boolean; // 是否要求 price、EMA50 在 EMA200 上方
+  maxEma200Slope?: number;  // EMA200 斜率绝对值小于此值视为“弱趋势/横盘”
+}
 
 /**
- * 简单 BTC 趋势策略回测（带手续费版本）
+ * BTC 弱趋势 / 震荡 RSI 均值回归策略回测
  */
-export function backtestSimpleBtcTrend(
+export function backtestWeakRsiMeanRevert(
   candles: Candle[],
-  options: BacktestOptions = {}
+  options: WeakRsiOptions = {}
 ): BacktestResult | null {
   const {
+    minAtrPct = 0.003,   // 0.3%
+    maxAtrPct = 0.01,    // 1.0%
+    rsiBuy = 35,
+    rsiSell = 50,
+    stopLossPct = 0.01,
+    takeProfitPct = 0.02,
     useTrendFilter = true,
-    stopLossPct = 0.02,
-    takeProfitPct = 0.04,
-    useV2Signal = false,
-    minAtrPct = 0.005,   // 默认：ATR 至少 0.5% 波动
-    maxRsiForEntry = 70, // RSI 太高不追
-    minRsiForEntry = 30, // RSI 太低不抄底
+    maxEma200Slope = 10, // 斜率“绝对值”允许的最大值，越小越严格
   } = options;
 
   if (candles.length < 200) {
-    console.log("K线太少，至少需要200根以上。");
+    console.log("K线太少，至少需要200根以上（弱趋势RSI策略）。");
     return null;
   }
 
@@ -62,7 +52,7 @@ export function backtestSimpleBtcTrend(
   const ema50 = ema(closes, 50);
   const ema200 = ema(closes, 200);
   const atr14 = atr(candles, 14);
-  const rsi14 = rsi(closes, 14); // 新增 RSI 指标
+  const rsi14 = rsi(closes, 14);
 
   let inPosition = false;
   let entryPrice = 0;
@@ -70,78 +60,80 @@ export function backtestSimpleBtcTrend(
 
   const trades: Trade[] = [];
 
-  // 从第200根开始（保证EMA/RSI/ATR都暖机）
+  // === 主循环，从第 200 根开始（指标暖机）===
   for (let i = 200; i < candles.length; i++) {
+    const c = candles[i]!;
     const price = closes[i]!;
-    const prevPrice = closes[i - 1]!;
     const e50 = ema50[i]!;
-    const prevE50 = ema50[i - 1]!;
     const e200 = ema200[i]!;
-    const currentCandle = candles[i]!;
-    const { high, low } = currentCandle;
-
-    const atrValue = atr14[i];
     const r = rsi14[i];
+    const a = atr14[i];
 
-    // 没有 ATR 或 RSI 的点直接跳过
-    if (atrValue === undefined || r === undefined || Number.isNaN(r)) {
-      continue;
-    }
+    if (r === undefined || a === undefined) continue;
 
-    const atrPct = atrValue / price;
+    const atrPct = a / price; // 粗略波动率
     const ema200Prev = ema200[i - 1]!;
     const ema200Slope = e200 - ema200Prev;
 
-    // === 行情过滤（多头结构 + 斜率 + 波动） ===
-    const isUpTrend = price > e200 && e50 > e200;
-    const strongSlope = ema200Slope > 0;
-    const enoughVol = atrPct > minAtrPct;
+    // === “弱趋势 / 震荡 + 上方结构”过滤 ===
+    let regimeOk = true;
 
-    const trendOk = useTrendFilter ? (isUpTrend && strongSlope && enoughVol) : true;
+    if (useTrendFilter) {
+      // 1. 大结构仍然在 EMA200 上方（不要抄刀底）
+      const above200 = price > e200 && e50 > e200;
 
-    // === RSI 过滤（避免追高 + 避免太超跌） ===
-    const rsiOk = r <= maxRsiForEntry && r >= minRsiForEntry;
+      // 2. EMA200 不要有很强的上/下趋势（绝对斜率过大就算强趋势）
+      const slopeOk = Math.abs(ema200Slope) <= maxEma200Slope;
+
+      // 3. 波动率在 [minAtrPct, maxAtrPct] 之间，太小没肉吃，太大容易接飞刀
+      const volOk = atrPct >= minAtrPct && atrPct <= maxAtrPct;
+
+      regimeOk = above200 && slopeOk && volOk;
+    }
+
+    const { high, low } = c;
 
     if (!inPosition) {
-      let signal: "LONG" | "CLOSE_LONG" | "HOLD";
-
-      if (useV2Signal) {
-        // v2: 回踩确认再突破
-        signal = detectSignalV2(candles, i, ema50, ema200, inPosition);
-      } else {
-        // v1: 简单突破
-        signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
-      }
-
-      // 新增：只有在趋势 + 波动 + RSI 都 ok 时才开多
-      if (signal === "LONG" && trendOk && rsiOk) {
+      // === 开仓逻辑：只在震荡 regime + RSI 超跌 + 价格在 EMA50 附近/下方 ===
+      if (regimeOk && r <= rsiBuy && price <= e50) {
         inPosition = true;
         entryPrice = price;
-        entryTime = currentCandle.closeTime;
+        entryTime = c.closeTime;
       }
     } else {
-      // 持仓状态 — 只看 SL/TP，不看 EMA / RSI
+      // === 持仓：优先 SL / TP，再看 RSI 反弹出场 ===
       const stopPrice = entryPrice * (1 - stopLossPct);
       const tpPrice = entryPrice * (1 + takeProfitPct);
 
       let shouldExit = false;
       let exitPrice = price;
-      let exitReason: "SL" | "TP" | "EMA" = "EMA";
+      let exitReason: "SL" | "TP" | "EMA" | "MEAN" = "MEAN";
 
+      // 1. 止损优先
       if (low <= stopPrice) {
         shouldExit = true;
         exitPrice = stopPrice;
         exitReason = "SL";
-      } else if (high >= tpPrice) {
+      }
+      // 2. 止盈
+      else if (high >= tpPrice) {
         shouldExit = true;
         exitPrice = tpPrice;
         exitReason = "TP";
       }
+      // 3. RSI 回到/超过 rsiSell，当作“回归均值”，平仓
+      else if (r >= rsiSell) {
+        shouldExit = true;
+        exitPrice = price;
+        exitReason = "MEAN";
+      }
 
       if (shouldExit) {
-        const exitTime = currentCandle.closeTime;
+        const exitTime = c.closeTime;
 
+        // 毛收益
         const grossPnlPct = ((exitPrice - entryPrice) / entryPrice) * 100;
+        // 手续费（双边）
         const feePct = feeRate * 2 * 100;
         const pnlPct = grossPnlPct - feePct;
 
@@ -159,7 +151,7 @@ export function backtestSimpleBtcTrend(
     }
   }
 
-  // 最后一笔强制平仓
+  // === 强制平最后一笔 ===
   if (inPosition) {
     const last = candles[candles.length - 1]!;
     const exitPrice = last.close;
@@ -180,12 +172,12 @@ export function backtestSimpleBtcTrend(
   }
 
   const totalTrades = trades.length;
-  const totalReturnPctSimple = trades.reduce((sum, t) => sum + t.pnlPct, 0);
-  const avgReturnPct = totalTrades > 0 ? totalReturnPctSimple / totalTrades : 0;
+  const totalReturnPct = trades.reduce((sum, t) => sum + t.pnlPct, 0);
+  const avgReturnPct = totalTrades > 0 ? totalReturnPct / totalTrades : 0;
   const wins = trades.filter((t) => t.pnlPct > 0);
   const winRate = totalTrades > 0 ? (wins.length / totalTrades) * 100 : 0;
 
-  // ====== 权益曲线 & 最大回撤 & 年化收益 ======
+  // ====== 权益曲线 & 最大回撤 & 年化 ======
   const equityCurve: { time: number; equity: number }[] = [];
   let equity = 1;
   let peakEquity = 1;
@@ -206,9 +198,9 @@ export function backtestSimpleBtcTrend(
 
   let annualizedReturnPct = 0;
   if (trades.length > 0 && equityCurve.length > 0) {
-    const firstTrade = trades[0]!;
-    const lastTrade = trades[trades.length - 1]!;
-    const msDiff = lastTrade.exitTime - firstTrade.entryTime;
+    const firstTime = trades[0]!.entryTime;
+    const lastTime = trades[trades.length - 1]!.exitTime;
+    const msDiff = lastTime - firstTime;
     if (msDiff > 0) {
       const years = msDiff / (1000 * 60 * 60 * 24 * 365);
       const finalEquity = equity;
@@ -218,7 +210,7 @@ export function backtestSimpleBtcTrend(
 
   return {
     totalTrades,
-    totalReturnPct: totalReturnPctSimple,
+    totalReturnPct,
     avgReturnPct,
     winRate,
     trades,
@@ -229,13 +221,13 @@ export function backtestSimpleBtcTrend(
 }
 
 /**
- * 打印结果
+ * 打印结果（沿用 engine 的格式习惯）
  */
-export function printBacktestResult(
+export function printWeakRsiResult(
   result: BacktestResult,
   candleCount: number
 ): void {
-  console.log("=== 简单BTC趋势策略回测（含手续费） ===");
+  console.log("=== BTC 弱趋势 / 震荡 RSI 均值回归策略回测（含手续费） ===");
   console.log("K线数量:", candleCount);
   console.log("交易笔数:", result.totalTrades);
   console.log("总收益（简单相加）:", result.totalReturnPct.toFixed(2), "%");
@@ -253,11 +245,13 @@ export function printBacktestResult(
 
   const slCount = result.trades.filter((t) => t.exitReason === "SL").length;
   const tpCount = result.trades.filter((t) => t.exitReason === "TP").length;
+  const meanCount = result.trades.filter((t) => t.exitReason === "MEAN").length;
   const emaCount = result.trades.filter((t) => t.exitReason === "EMA").length;
 
   console.log("退出方式统计:", {
     SL: slCount,
     TP: tpCount,
+    MEAN: meanCount,
     EMA: emaCount,
   });
 

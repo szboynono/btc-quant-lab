@@ -6,7 +6,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "tsx src/index.ts",
-    "index-multi-window": "tsx src/index-multi-window.ts"
+    "index-multi-window": "tsx src/index-multi-window.ts",
+    "index-global-summary": "tsx src/index-global-summary.ts",
+    "index-position-sizing": "tsx src/index-position-sizing.ts",
+    "run-live-once": "tsx src/run-live-once.ts"
   },
   "repository": {
     "type": "git",
@@ -21,12 +24,13 @@
   },
   "homepage": "https://github.com/szboynono/btc-quant-lab#readme",
   "dependencies": {
-    "@types/node": "^24.10.1",
     "axios": "^1.13.2",
+    "path": "^0.12.7",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@types/node": "^24.10.1",
     "ts-node": "^10.9.2"
   }
 }
