@@ -9,7 +9,7 @@
     "index-multi-window": "tsx src/index-multi-window.ts",
     "index-global-summary": "tsx src/index-global-summary.ts",
     "index-position-sizing": "tsx src/index-position-sizing.ts",
-    "run-live-once": "tsx src/run-live-once.ts"
+    "live": "tsx src/run-live-once.ts"
   },
   "repository": {
     "type": "git",
