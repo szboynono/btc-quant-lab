@@ -1,5 +1,5 @@
 // src/notify/notify-discord.ts
-import fetch from "node-fetch";
+// Uses global fetch (Node.js 18+)
 
 export interface NotifyPayload {
   title: string;

@@ -10,8 +10,8 @@
     "index-multi-window": "tsx src/index-multi-window.ts",
     "index-global-summary": "tsx src/index-global-summary.ts",
     "index-position-sizing": "tsx src/index-position-sizing.ts",
-    "live": "tsx src/run-live-once.ts",
-    "live-every-4h": "tsx src/run-live-every-4h.ts"
+    "live-once": "tsx src/run-live-once.ts",
+    "live-cron": "tsx src/run-live-every-4h.ts"
   },
   "repository": {
     "type": "git",
