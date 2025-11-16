@@ -11,7 +11,8 @@
     "index-global-summary": "tsx src/index-global-summary.ts",
     "index-position-sizing": "tsx src/index-position-sizing.ts",
     "live-once": "tsx src/run-live-once.ts",
-    "live-cron": "tsx src/run-live-every-4h.ts"
+    "live-cron": "tsx src/run-live-every-4h.ts",
+    "optimize": "tsx src/index-optimizer.ts"
   },
   "repository": {
     "type": "git",
