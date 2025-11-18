@@ -13,7 +13,9 @@
     "live-once": "tsx src/run-live-once.ts",
     "live-cron": "tsx src/run-live-every-4h.ts",
     "optimize": "tsx src/index-optimizer.ts",
-    "backtest-regime": "tsx src/index-backtest-regime.ts"
+    "backtest-regime": "tsx src/index-backtest-regime.ts",
+    "backtest-walkforward": "tsx src/backtest-walkforward.ts",
+    "backtest-walkforward-robust": "tsx src/backtest-walkforward-robust.ts"
   },
   "repository": {
     "type": "git",
