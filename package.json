@@ -6,13 +6,14 @@
   "scripts": {
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "tsx src/index.ts",
+    "backtest": "tsx src/index-backtest.ts",
     "index-multi-window": "tsx src/index-multi-window.ts",
     "index-global-summary": "tsx src/index-global-summary.ts",
     "index-position-sizing": "tsx src/index-position-sizing.ts",
     "live-once": "tsx src/run-live-once.ts",
     "live-cron": "tsx src/run-live-every-4h.ts",
-    "optimize": "tsx src/index-optimizer.ts"
+    "optimize": "tsx src/index-optimizer.ts",
+    "backtest-regime": "tsx src/index-backtest-regime.ts"
   },
   "repository": {
     "type": "git",

@@ -1,11 +1,11 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { fetchBtc4hCandles } from "./exchange/binance.js";
 import {
   backtestSimpleBtcTrend,
   printBacktestResult,
 } from "./backtest/engine.js";
 import type { Trade } from "./types/candle.js";
+import { fetchBtc4hCandles, fetchBtc1dCandles } from "./exchange/binance.js";
 
 // === 配置类型定义 ===
 

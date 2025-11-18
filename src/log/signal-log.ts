@@ -1,6 +1,7 @@
 // src/log/signal-log.ts
 import { promises as fs } from "fs";
 import path from "node:path";
+import type { Regime } from "../strategy/regime.js";
 
 const LOG_FILE = "signal-log.jsonl"; // 会写在你运行 node 的当前目录
 
@@ -11,6 +12,7 @@ export interface SignalLogEntry {
   takeProfit: number;
   rawSignal: string;
   trendOk: boolean;
+  regimeOk?: boolean; // 可选：高周期 regime 过滤结果
   ema50: number;
   ema200: number;
   atrPct: number;
@@ -34,6 +36,9 @@ export interface SignalLogEntry {
     notional: number;     // 名义价值（USDT）
     qtyBTC: number;       // 购买数量（BTC）
   };
+
+  dailyRegime?: Regime;
+  dailyAtrPct?: number;
 }
 
 export async function appendSignalLog(entry: SignalLogEntry): Promise<void> {

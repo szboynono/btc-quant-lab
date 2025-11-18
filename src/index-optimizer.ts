@@ -1,13 +1,21 @@
 // src/index-optimizer.ts
 import "dotenv/config";
 import fs from "node:fs/promises";
-// 这里你可以按需要换成 HTX 版本的 fetch
-import { fetchBtc4hCandles } from "./exchange/binance.js";
+
+import {
+  fetchBtc4hCandles,
+  fetchBtc1dCandles,
+} from "./exchange/binance.js";
 
 import {
   backtestSimpleBtcTrend,
   type BacktestResult,
+  type BacktestOptions,
 } from "./backtest/engine.js";
+
+import { ema } from "./indicators/ema.js";
+import { detectRegimeFromEma } from "./strategy/regime.js";
+import type { Candle } from "./types/candle.js";
 
 import strategy from "./config/strategy.json" with { type: "json" };
 
@@ -16,9 +24,8 @@ import strategy from "./config/strategy.json" with { type: "json" };
 // 是否自动把最优参数写回 config/strategy.json
 const AUTO_UPDATE_STRATEGY_JSON = false;
 
-// 训练集 / 测试集里至少要有多少笔交易，才认为这组参数“有意义”
-const MIN_TRAIN_TRADES = 15;
-const MIN_TEST_TRADES = 6;
+const MIN_TRAIN_TRADES = 3;
+const MIN_TEST_TRADES = 2;
 
 // 风险惩罚权重：score = 收益 - ALPHA * 回撤
 //（Train 和 Test 都用这个 ALPHA）
@@ -56,28 +63,91 @@ type ScoredResult = {
   jointScore: number;
 };
 
+type Regime = "BULL" | "BEAR" | "RANGE";
+
+// 把时间戳归一到“UTC 的日期 key”
+function dayKeyFromMs(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+}
+
+/**
+ * 基于日线 50/200 EMA，构建一个 Map：
+ *   "YYYY-M-D" -> "BULL" | "BEAR" | "RANGE"
+ */
+function buildDailyRegimeMap(daily: Candle[]): Map<string, Regime> {
+  const closes = daily.map((c) => c.close);
+  const ema50 = ema(closes, 50);
+  const ema200 = ema(closes, 200);
+
+  const map = new Map<string, Regime>();
+
+  for (let i = 200; i < daily.length; i++) {
+    const price = closes[i]!;
+    const e50 = ema50[i]!;
+    const e200 = ema200[i]!;
+    const prevE200 = ema200[i - 1]!;
+
+    const { regime } = detectRegimeFromEma(price, e50, e200, prevE200);
+    const key = dayKeyFromMs(daily[i]!.closeTime);
+    map.set(key, regime as Regime);
+  }
+
+  return map;
+}
+
+/**
+ * 对 4H K 线做回测，但只在「日线 Regime === BULL」的日期上交易。
+ * 其它逻辑仍然走 backtestSimpleBtcTrend（里面还有 4H 自己的 EMA Regime）。
+ */
+function backtestWithDailyRegimeFilter(
+  candles4h: Candle[],
+  dailyRegimes: Map<string, Regime>,
+  options: BacktestOptions
+): BacktestResult | null {
+  // 只保留“日线 regime 为 BULL 的那几天”的 4H K 线
+  const filtered = candles4h.filter((c) => {
+    const key = dayKeyFromMs(c.closeTime);
+    const regime = dailyRegimes.get(key);
+    return regime === "BULL";
+  });
+
+  if (filtered.length < 200) {
+    // K 线太少，EMA/RSI 暖机不够
+    return null;
+  }
+
+  return backtestSimpleBtcTrend(filtered, options);
+}
+
 async function main() {
   console.log("正在从 binance 获取BTCUSDT 4小时K线...");
-  const candles = await fetchBtc4hCandles(3000);
-  console.log(`获取到 ${candles.length} 根K线。`);
+  const candles4h = await fetchBtc4hCandles(3000);
+  console.log(`4H 获取到 ${candles4h.length} 根K线。`);
 
-  if (candles.length < 600) {
-    console.log("K 线太少，至少需要 600 根。");
+  if (candles4h.length < 600) {
+    console.log("4H K 线太少，至少需要 600 根。");
     return;
   }
 
-  // 2/3 训练 + 1/3 测试
-  const splitIndex = Math.floor(candles.length * 0.67);
-  const trainCandles = candles.slice(0, splitIndex);
-  const testCandles = candles.slice(splitIndex);
+  console.log("正在从 binance 获取BTCUSDT 1天K线...");
+  const candles1d = await fetchBtc1dCandles(500);
+  console.log(`1D 获取到 ${candles1d.length} 根K线。`);
+
+  const dailyRegimeMap = buildDailyRegimeMap(candles1d);
+
+  // 2/3 训练 + 1/3 测试（在 4H 维度上切）
+  const splitIndex = Math.floor(candles4h.length * 0.67);
+  const train4h = candles4h.slice(0, splitIndex);
+  const test4h = candles4h.slice(splitIndex);
 
   console.log(
-    `训练集 K 线: ${trainCandles.length}, 测试集 K 线: ${testCandles.length}`
+    `训练集 4H K 线: ${train4h.length}, 测试集 4H K 线: ${test4h.length}`
   );
 
   const allResults: ScoredResult[] = [];
 
-  console.log("\n=== 参数扫描（训练 + 测试一起看） ===");
+  console.log("\n=== 参数扫描（训练 + 测试一起看，含日线 Regime BULL 过滤） ===");
 
   for (const useV2Signal of SIGNAL_VERSIONS) {
     console.log(`\n--- 使用 ${useV2Signal ? "v2" : "v1"} signal ---`);
@@ -93,11 +163,17 @@ async function main() {
             minAtrPct,
           };
 
-          // 1) 先跑训练集
-          const train = backtestSimpleBtcTrend(trainCandles, {
+          const backtestOpts: BacktestOptions = {
             useTrendFilter: true,
             ...params,
-          });
+          };
+
+          // 1) 先跑训练集（带日线 Regime 过滤）
+          const train = backtestWithDailyRegimeFilter(
+            train4h,
+            dailyRegimeMap,
+            backtestOpts
+          );
 
           if (!train) continue;
           if (train.totalTrades < MIN_TRAIN_TRADES) {
@@ -109,11 +185,12 @@ async function main() {
             continue;
           }
 
-          // 2) 再跑测试集
-          const test = backtestSimpleBtcTrend(testCandles, {
-            useTrendFilter: true,
-            ...params,
-          });
+          // 2) 再跑测试集（同样带日线 Regime 过滤）
+          const test = backtestWithDailyRegimeFilter(
+            test4h,
+            dailyRegimeMap,
+            backtestOpts
+          );
 
           if (!test) continue;
           if (test.totalTrades < MIN_TEST_TRADES) {
@@ -125,7 +202,7 @@ async function main() {
             continue;
           }
 
-          // 3) 计算 score（Train / Test 各自一个，再综合）
+          // 3) 计算 Train / Test 的 score
           const trainScore =
             train.totalReturnPct - ALPHA * train.maxDrawdownPct;
           const testScore =
@@ -200,18 +277,15 @@ async function main() {
   const topN = 5;
   console.log(`\n=== 前 ${topN} 名参数概览（按 jointScore 排序） ===`);
   for (const [idx, r] of allResults.slice(0, topN).entries()) {
-    console.log(
-      `#${idx + 1}`,
-      {
-        useV2Signal: r.params.useV2Signal,
-        SL: r.params.stopLossPct,
-        TP: r.params.takeProfitPct,
-        minAtrPct: r.params.minAtrPct,
-        trainRet: r.train.totalReturnPct.toFixed(2) + "%",
-        testRet: r.test.totalReturnPct.toFixed(2) + "%",
-        jointScore: r.jointScore.toFixed(2),
-      }
-    );
+    console.log(`#${idx + 1}`, {
+      useV2Signal: r.params.useV2Signal,
+      SL: r.params.stopLossPct,
+      TP: r.params.takeProfitPct,
+      minAtrPct: r.params.minAtrPct,
+      trainRet: r.train.totalReturnPct.toFixed(2) + "%",
+      testRet: r.test.totalReturnPct.toFixed(2) + "%",
+      jointScore: r.jointScore.toFixed(2),
+    });
   }
 
   // === 可选：自动写回 strategy.json ===

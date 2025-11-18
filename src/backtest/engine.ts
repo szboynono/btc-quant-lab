@@ -2,8 +2,25 @@ import type { Candle, Trade } from "../types/candle.js";
 import { ema } from "../indicators/ema.js";
 import { detectSignal } from "../strategy/simple-trend.js";
 import { detectSignalV2 } from "../strategy/simple-trend-v2.js";
+import { detectRegimeFromEma } from "../strategy/regime.js";
 import { atr } from "../indicators/atr.js";
 import { rsi } from "../indicators/rsi.js";
+
+/**
+ * Regime 类型
+ */
+export type RegimeType = "BULL" | "BEAR" | "RANGE";
+
+/**
+ * 高周期（日线）regime 序列：
+ * times: 日线K的时间戳（一般用 closeTime）
+ * regimes: 对应的 regime
+ * 要求 times 按从小到大排序
+ */
+export interface HigherTFRegimeSeries {
+  times: number[];
+  regimes: RegimeType[];
+}
 
 /**
  * 回测统计结果
@@ -23,14 +40,29 @@ export interface BacktestResult {
  * 回测参数配置
  */
 export interface BacktestOptions {
-  useTrendFilter?: boolean;   // 是否使用 200EMA 多头过滤 + 强度过滤
+  useTrendFilter?: boolean;   // 是否使用 4h 200EMA 多头过滤 + 强度过滤
   stopLossPct?: number;       // 止损百分比（比如 0.02 = 2%）
   takeProfitPct?: number;     // 止盈百分比
   useV2Signal?: boolean;      // 是否使用 V2 信号
   minAtrPct?: number;         // 最小 ATR 波动率阈值（ATR / price）
-  // 下面两个是新的 RSI 过滤参数
+
+  // RSI 过滤参数
   maxRsiForEntry?: number;    // 开多时 RSI 不得高于多少，默认 70
   minRsiForEntry?: number;    // 开多时 RSI 不得低于多少，默认 30（防止刀口接飞刀）
+
+  // ✅ 新增：高周期（日线）Regime 过滤
+  /**
+   * 可选：高周期（日线）Regime 序列。
+   * 不传的话，就只看 4h 自己的 regime（保持与你现在一模一样的行为）
+   */
+  higherTFRegime?: HigherTFRegimeSeries;
+
+  /**
+   * 可选：允许开仓的高周期 regime 列表。
+   * 比如只在日线多头时做多：["BULL"]
+   * 默认为 ["BULL"]。
+   */
+  allowedHigherTFRegimes?: RegimeType[];
 }
 
 // 交易手续费（单边）
@@ -51,6 +83,10 @@ export function backtestSimpleBtcTrend(
     minAtrPct = 0.005,   // 默认：ATR 至少 0.5% 波动
     maxRsiForEntry = 70, // RSI 太高不追
     minRsiForEntry = 30, // RSI 太低不抄底
+
+    // ✅ 新增：高周期（日线）regime 过滤相关
+    higherTFRegime,
+    allowedHigherTFRegimes = ["BULL"],
   } = options;
 
   if (candles.length < 200) {
@@ -63,6 +99,17 @@ export function backtestSimpleBtcTrend(
   const ema200 = ema(closes, 200);
   const atr14 = atr(candles, 14);
   const rsi14 = rsi(closes, 14); // 新增 RSI 指标
+
+  // ✅ 为高周期 regime 做一个「指针」
+  let htTimes: number[] = [];
+  let htRegimes: RegimeType[] = [];
+  let htIndex = 0;
+
+  if (higherTFRegime && higherTFRegime.times.length > 0) {
+    htTimes = higherTFRegime.times;
+    htRegimes = higherTFRegime.regimes;
+    // 保险起见，假设 times 已经是升序（一般日线数据本来就是）
+  }
 
   let inPosition = false;
   let entryPrice = 0;
@@ -78,7 +125,7 @@ export function backtestSimpleBtcTrend(
     const prevE50 = ema50[i - 1]!;
     const e200 = ema200[i]!;
     const currentCandle = candles[i]!;
-    const { high, low } = currentCandle;
+    const { high, low, closeTime } = currentCandle;
 
     const atrValue = atr14[i];
     const r = rsi14[i];
@@ -90,14 +137,49 @@ export function backtestSimpleBtcTrend(
 
     const atrPct = atrValue / price;
     const ema200Prev = ema200[i - 1]!;
-    const ema200Slope = e200 - ema200Prev;
 
-    // === 行情过滤（多头结构 + 斜率 + 波动） ===
-    const isUpTrend = price > e200 && e50 > e200;
-    const strongSlope = ema200Slope > 0;
+    // === 4h 自身的 Regime 判断 ===
+    const { regime } = detectRegimeFromEma(
+      price,
+      e50,
+      e200,
+      ema200Prev
+    );
+
     const enoughVol = atrPct > minAtrPct;
 
-    const trendOk = useTrendFilter ? (isUpTrend && strongSlope && enoughVol) : true;
+    // === ✅ 高周期（日线）Regime 过滤 ===
+    let higherRegimeOk = true;
+    if (htTimes.length > 0) {
+      // 用「指针」在日线 times 数组里前进：
+      // 用「指针」在日线 times 数组里前进，注意 htTimes 和 htRegimes 都应存在
+      while (
+        htTimes &&
+        htRegimes &&
+        htIndex + 1 < htTimes.length &&
+        htTimes[htIndex + 1] !== undefined &&
+        htTimes[htIndex + 1]! <= closeTime
+      ) {
+        htIndex++;
+      }
+
+      const htRegime = htRegimes[htIndex];
+      if (htRegime && allowedHigherTFRegimes.length > 0) {
+        higherRegimeOk = allowedHigherTFRegimes.includes(htRegime);
+      }
+    }
+
+    // 总体趋势过滤：
+    // - 原来：必须 4h 是多头结构 + 波动率够
+    // - 现在：在此基础上再叠加「高周期 regime 必须允许」
+    const trendOk = useTrendFilter
+      ? regime === "BULL" && enoughVol && higherRegimeOk
+      : higherRegimeOk;
+
+    // 不满足 Regime / 波动率 / 高周期过滤，直接跳过，不开仓
+    if (!trendOk) {
+      continue;
+    }
 
     // === RSI 过滤（避免追高 + 避免太超跌） ===
     const rsiOk = r <= maxRsiForEntry && r >= minRsiForEntry;
@@ -113,7 +195,7 @@ export function backtestSimpleBtcTrend(
         signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
       }
 
-      // 新增：只有在趋势 + 波动 + RSI 都 ok 时才开多
+      // 只有在：趋势（4h）ok + 高周期 ok + 波动 ok + RSI ok 时才开多
       if (signal === "LONG" && trendOk && rsiOk) {
         inPosition = true;
         entryPrice = price;
