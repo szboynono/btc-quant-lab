@@ -19,7 +19,9 @@
     "get-account-id": "tsx src/get-account-id.ts",
     "place-spot-order": "tsx src/examples/htx-place-spot-order.ts",
     "list-accounts": "tsx src/examples/htx-list-accounts.ts",
-    "perp-place-order": "tsx src/examples/htx-perp-place-order.ts"
+    "perp-place-order": "tsx src/examples/htx-perp-place-order.ts",
+    "perp-place-tpsl-order": "tsx src/examples/htx-perp-place-tpsl-order.ts",
+    "perp-place-tpsl-order-simple": "tsx src/examples/htx-perp-place-tpsl-simple.ts"
   },
   "repository": {
     "type": "git",
