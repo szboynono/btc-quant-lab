@@ -15,7 +15,11 @@
     "optimize": "tsx src/index-optimizer.ts",
     "backtest-regime": "tsx src/index-backtest-regime.ts",
     "backtest-walkforward": "tsx src/backtest-walkforward.ts",
-    "backtest-walkforward-robust": "tsx src/backtest-walkforward-robust.ts"
+    "backtest-walkforward-robust": "tsx src/backtest-walkforward-robust.ts",
+    "get-account-id": "tsx src/get-account-id.ts",
+    "place-spot-order": "tsx src/examples/htx-place-spot-order.ts",
+    "list-accounts": "tsx src/examples/htx-list-accounts.ts",
+    "perp-place-order": "tsx src/examples/htx-perp-place-order.ts"
   },
   "repository": {
     "type": "git",
