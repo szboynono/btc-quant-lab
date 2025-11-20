@@ -6,6 +6,7 @@ import { ema } from "./indicators/ema.js";
 import { atr } from "./indicators/atr.js";
 import { detectSignal } from "./strategy/simple-trend.js";
 import { detectSignalV2 } from "./strategy/simple-trend-v2.js";
+import { detectSignalV3 } from "./strategy/simple-trend-v3.js"; // ✅ 新增 V3
 import { detectRegimeFromEma, type Regime } from "./strategy/regime.js";
 import { sendDiscordNotification } from "./notify/notify-discord.js";
 import { appendSignalLog } from "./log/signal-log.js";
@@ -184,12 +185,17 @@ async function runOnce() {
     console.log(`已存在 BTC-USDT 多仓, 总张数=${openLongVolume}`);
   }
 
-  // =============== 信号判断（是否在仓） ===============
+  // =============== 信号判断（使用 V1 / V2 / V3 + 是否在仓） ===============
   let rawSignal: "LONG" | "CLOSE_LONG" | "HOLD";
 
-  if (CONFIG.useV2Signal) {
+  if (CONFIG.useV3Signal) {
+    // ✅ V3：突破 + 下一根 K 线宽松确认
+    rawSignal = detectSignalV3(candles4h, i, ema50_4h, ema200_4h, inPosition);
+  } else if (CONFIG.useV2Signal) {
+    // V2：回踩确认再突破
     rawSignal = detectSignalV2(candles4h, i, ema50_4h, ema200_4h, inPosition);
   } else {
+    // V1：简单突破
     rawSignal = detectSignal(
       price4h,
       prevPrice4h,
@@ -201,6 +207,10 @@ async function runOnce() {
 
   console.log("\n=== 信号判断 ===");
   console.log("当前是否已有多仓 inPosition:", inPosition);
+  console.log(
+    "signalVersion:",
+    CONFIG.useV3Signal ? "V3" : CONFIG.useV2Signal ? "V2" : "V1"
+  );
   console.log("原始信号 rawSignal:", rawSignal);
   console.log("4H trendOk:", trendOk4h);
   console.log("日线 regimeOk:", regimeOk);

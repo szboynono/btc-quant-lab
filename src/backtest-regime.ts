@@ -11,6 +11,7 @@ import { detectRegimeFromEma } from "./strategy/regime.js";
 export interface StrategyConfig {
   useTrendFilter?: boolean;
   useV2Signal?: boolean;
+  useV3Signal?: boolean;
   stopLossPct?: number;
   takeProfitPct?: number;
   minAtrPct?: number;
@@ -55,6 +56,7 @@ export function runBacktestWithConfig(
   const result = backtestSimpleBtcTrend(candles4h, {
     useTrendFilter: cfg.useTrendFilter ?? true,
     useV2Signal: cfg.useV2Signal ?? false,
+    useV3Signal: cfg.useV3Signal ?? false,
     stopLossPct: cfg.stopLossPct ?? 0.015,
     takeProfitPct: cfg.takeProfitPct ?? 0.04,
     minAtrPct: cfg.minAtrPct ?? 0.005,

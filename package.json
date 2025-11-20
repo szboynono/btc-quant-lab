@@ -21,7 +21,11 @@
     "list-accounts": "tsx src/examples/htx-list-accounts.ts",
     "perp-place-order": "tsx src/examples/htx-perp-place-order.ts",
     "perp-place-tpsl-order": "tsx src/examples/htx-perp-place-tpsl-order.ts",
-    "perp-place-tpsl-order-simple": "tsx src/examples/htx-perp-place-tpsl-simple.ts"
+    "perp-place-tpsl-order-simple": "tsx src/examples/htx-perp-place-tpsl-simple.ts",
+    "backtest-v3": "tsx src/index-backtest-v3.ts",
+    "backtest-static": "tsx src/index-backtest-static.ts",
+    "save-candles-htx": "tsx src/save-candles-htx.ts",
+    "backtest-compare": "tsx src/index-backtest-compare.ts"
   },
   "repository": {
     "type": "git",

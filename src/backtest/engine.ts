@@ -2,6 +2,7 @@ import type { Candle, Trade } from "../types/candle.js";
 import { ema } from "../indicators/ema.js";
 import { detectSignal } from "../strategy/simple-trend.js";
 import { detectSignalV2 } from "../strategy/simple-trend-v2.js";
+import { detectSignalV3 } from "../strategy/simple-trend-v3.js";
 import { detectRegimeFromEma } from "../strategy/regime.js";
 import { atr } from "../indicators/atr.js";
 import { rsi } from "../indicators/rsi.js";
@@ -44,6 +45,7 @@ export interface BacktestOptions {
   stopLossPct?: number;       // 止损百分比（比如 0.02 = 2%）
   takeProfitPct?: number;     // 止盈百分比
   useV2Signal?: boolean;      // 是否使用 V2 信号
+  useV3Signal?: boolean;      // 是否使用 V3 信号
   minAtrPct?: number;         // 最小 ATR 波动率阈值（ATR / price）
 
   // RSI 过滤参数
@@ -80,6 +82,7 @@ export function backtestSimpleBtcTrend(
     stopLossPct = 0.02,
     takeProfitPct = 0.04,
     useV2Signal = false,
+    useV3Signal = false,
     minAtrPct = 0.005,   // 默认：ATR 至少 0.5% 波动
     maxRsiForEntry = 70, // RSI 太高不追
     minRsiForEntry = 30, // RSI 太低不抄底
@@ -187,7 +190,9 @@ export function backtestSimpleBtcTrend(
     if (!inPosition) {
       let signal: "LONG" | "CLOSE_LONG" | "HOLD";
 
-      if (useV2Signal) {
+      if (useV3Signal) {
+        signal = detectSignalV3(candles, i, ema50, ema200, inPosition);
+      } else if (useV2Signal) {
         // v2: 回踩确认再突破
         signal = detectSignalV2(candles, i, ema50, ema200, inPosition);
       } else {
