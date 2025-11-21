@@ -25,7 +25,8 @@
     "backtest-v3": "tsx src/index-backtest-v3.ts",
     "backtest-static": "tsx src/index-backtest-static.ts",
     "save-candles-htx": "tsx src/save-candles-htx.ts",
-    "backtest-compare": "tsx src/index-backtest-compare.ts"
+    "backtest-compare": "tsx src/index-backtest-compare.ts",
+    "sweep-v3": "tsx src/sweep-v3.ts"
   },
   "repository": {
     "type": "git",

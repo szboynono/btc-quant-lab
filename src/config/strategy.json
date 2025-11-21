@@ -5,8 +5,12 @@
   "useTrendFilter": true,
   "useV2Signal": false,
   "useV3Signal": true,
+
   "stopLossPct": 0.008,
-  "takeProfitPct": 0.05,
-  "minAtrPct": 0.0075,
+  "takeProfitPct": 0.04,
+  "minAtrPct": 0.007,
+  "maxRsiForEntry": 75,
+  "minRsiForEntry": 30,
+
   "leverageLevels": [3, 5]
 }

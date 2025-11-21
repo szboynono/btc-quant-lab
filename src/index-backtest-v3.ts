@@ -21,35 +21,26 @@ async function main() {
     return;
   }
 
-  // 把你 strategy.json 里和回测相关的字段抽出来
+  // 从 strategy.json 抽出这次回测要用的公共参数
   const baseCfg = {
     useTrendFilter: strategy.useTrendFilter ?? true,
     stopLossPct: strategy.stopLossPct ?? 0.008,
-    takeProfitPct: strategy.takeProfitPct ?? 0.05,
-    minAtrPct: strategy.minAtrPct ?? 0.0075,
-    // 先用固定的 RSI 区间，之后想优化再说
-    maxRsiForEntry: 70,
-    minRsiForEntry: 30,
+    takeProfitPct: strategy.takeProfitPct ?? 0.04,
+    minAtrPct: strategy.minAtrPct ?? 0.007,
+    // 这里改成从 strategy.json 里读 RSI 区间
+    maxRsiForEntry: strategy.maxRsiForEntry ?? 75,
+    minRsiForEntry: strategy.minRsiForEntry ?? 30,
   };
 
-  console.log("\n=== 回测 1：V2（当前实盘思路，同参数） ===");
-  console.log(
-    JSON.stringify(
-      {
-        ...baseCfg,
-        useV2Signal: true,
-        useV3Signal: false,
-      },
-      null,
-      2
-    )
-  );
-
-  const v2Ret = runBacktestWithConfig(candles4h, candles1d, {
+  console.log("\n=== 回测 1：V2（同一套参数，只用 V2 信号） ===");
+  const v2Config = {
     ...baseCfg,
     useV2Signal: true,
     useV3Signal: false,
-  });
+  };
+  console.log(JSON.stringify(v2Config, null, 2));
+
+  const v2Ret = runBacktestWithConfig(candles4h, candles1d, v2Config);
 
   if (!v2Ret || !v2Ret.result) {
     console.log("V2 回测失败。");
@@ -57,24 +48,15 @@ async function main() {
     printBacktestResult(v2Ret.result, candles4h.length);
   }
 
-  console.log("\n\n=== 回测 2：V3 宽松确认（同参数，只换信号） ===");
-  console.log(
-    JSON.stringify(
-      {
-        ...baseCfg,
-        useV2Signal: false,
-        useV3Signal: true,
-      },
-      null,
-      2
-    )
-  );
-
-  const v3Ret = runBacktestWithConfig(candles4h, candles1d, {
+  console.log("\n\n=== 回测 2：V3 宽松确认（同一套参数，只用 V3 信号） ===");
+  const v3Config = {
     ...baseCfg,
     useV2Signal: false,
     useV3Signal: true,
-  });
+  };
+  console.log(JSON.stringify(v3Config, null, 2));
+
+  const v3Ret = runBacktestWithConfig(candles4h, candles1d, v3Config);
 
   if (!v3Ret || !v3Ret.result) {
     console.log("V3 回测失败。");
