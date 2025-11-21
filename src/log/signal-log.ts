@@ -16,6 +16,10 @@ export interface SignalLogEntry {
   ema50: number;
   ema200: number;
   atrPct: number;
+  rsi?: number;
+  rsiOk?: boolean;
+  premiumOverEma50Pct?: number;
+  notTooHigh?: boolean;
 
   // 方便你以后看杠杆风险
   leverage3x: {

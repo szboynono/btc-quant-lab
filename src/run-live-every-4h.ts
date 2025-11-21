@@ -10,6 +10,7 @@ import { detectSignalV3 } from "./strategy/simple-trend-v3.js"; // ✅ 新增 V3
 import { detectRegimeFromEma, type Regime } from "./strategy/regime.js";
 import { sendDiscordNotification } from "./notify/notify-discord.js";
 import { appendSignalLog } from "./log/signal-log.js";
+import { rsi } from "./indicators/rsi.js"; // ✅ 新增
 
 // ✅ HTX 永续下单 / TPSL + 仓位查询
 import {
@@ -60,9 +61,14 @@ async function runOnce() {
 
   // =============== 4H 部分 ===============
   const closes4h = candles4h.map((c) => c.close);
-  const ema50_4h = ema(closes4h, 50);
-  const ema200_4h = ema(closes4h, 200);
-  const atr14_4h = atr(candles4h, 14);
+  const emaFastPeriod = CONFIG.emaFast ?? 50;
+  const emaSlowPeriod = CONFIG.emaSlow ?? 200;
+  const atrPeriod = CONFIG.atrPeriod ?? 14;
+  const rsiPeriod = CONFIG.rsiPeriod ?? 14;
+  const ema50_4h = ema(closes4h, emaFastPeriod);
+  const ema200_4h = ema(closes4h, emaSlowPeriod);
+  const atr14_4h = atr(candles4h, atrPeriod);
+  const rsiArr4h = rsi(closes4h, rsiPeriod);
 
   const i = candles4h.length - 1;
   const candle4h = candles4h[i] as Candle;
@@ -73,23 +79,33 @@ async function runOnce() {
   const e200_4h = ema200_4h[i]!;
   const e200Prev_4h = ema200_4h[i - 1]!;
   const atrValue4h = atr14_4h[i];
-
-  console.log("\n=== 当前 4H K 线状态 ===");
-  console.log("收盘时间:", new Date(candle4h.closeTime).toISOString());
-  console.log("收盘价格:", price4h.toFixed(2));
-  console.log("EMA50:", e50_4h.toFixed(2));
-  console.log("EMA200:", e200_4h.toFixed(2));
+  const rsiNow = rsiArr4h[i];
+  const premiumOverEma50 =
+    e50_4h > 0 ? (price4h - e50_4h) / e50_4h : 0;
 
   if (atrValue4h === undefined) {
     console.log("ATR 数据不足，跳过本次。");
     return;
   }
 
+  if (rsiNow === undefined) {
+    console.log("RSI 数据不足，跳过本次。");
+    return;
+  }
+
   const atrPct4h = atrValue4h / price4h;
   const ema200Slope4h = e200_4h - e200Prev_4h;
 
+  console.log("\n=== 当前 4H K 线状态 ===");
+  console.log("收盘时间:", new Date(candle4h.closeTime).toISOString());
+  console.log("收盘价格:", price4h.toFixed(2));
+  console.log(`EMA${emaFastPeriod}:`, e50_4h.toFixed(2));
+  console.log(`EMA${emaSlowPeriod}:`, e200_4h.toFixed(2));
+  console.log(`RSI(${rsiPeriod}):`, rsiNow.toFixed(2));
   console.log(
-    `ATR(14): ${atrValue4h.toFixed(2)} (${(atrPct4h * 100).toFixed(2)}%)`
+    `ATR(${atrPeriod}): ${atrValue4h.toFixed(2)} (${(atrPct4h * 100).toFixed(
+      2
+    )}%)`
   );
   console.log("200EMA 斜率:", ema200Slope4h.toFixed(4));
 
@@ -97,6 +113,11 @@ async function runOnce() {
   const isUpTrend4h = price4h > e200_4h && e50_4h > e200_4h;
   const strongSlope4h = ema200Slope4h > 0;
   const enoughVol4h = atrPct4h > CONFIG.minAtrPct;
+  const minRsi = CONFIG.minRsiForEntry ?? 30;
+  const maxRsi = CONFIG.maxRsiForEntry ?? 70;
+  let rsiOk = rsiNow >= minRsi && rsiNow <= maxRsi;
+  const maxPremium = CONFIG.maxPremiumOverEma50 ?? 0.05;
+  let notTooHigh = premiumOverEma50 <= maxPremium;
 
   console.log("\n=== 4H 趋势过滤 ===");
   console.log("多头结构 (price > EMA200 && EMA50 > EMA200):", isUpTrend4h);
@@ -105,6 +126,17 @@ async function runOnce() {
     "波动率足够 (ATR/price > minAtrPct):",
     enoughVol4h,
     ", minAtrPct=" + (CONFIG.minAtrPct * 100).toFixed(2) + "%"
+  );
+  console.log(
+    `RSI 过滤 (${minRsi} ~ ${maxRsi}):`,
+    rsiOk
+  );
+  console.log(
+    `不追高过滤 (price 相对 EMA${emaFastPeriod} 溢价 <= ${(maxPremium * 100).toFixed(
+      1
+    )}%):`,
+    notTooHigh,
+    `; 当前溢价 = ${(premiumOverEma50 * 100).toFixed(2)}%`
   );
 
   let trendOk4h = CONFIG.useTrendFilter
@@ -218,11 +250,13 @@ async function runOnce() {
   // =============== TEST_MODE：强制信号 & 过滤通过 ===============
   if (TEST_MODE) {
     console.log(
-      "\n[TEST_MODE] 启用：强制 rawSignal = LONG，trendOk4h = true，regimeOk = true，方便端到端测试。"
+      "\n[TEST_MODE] 启用：强制 rawSignal = LONG，trendOk4h = true，regimeOk = true，rsiOk = true，notTooHigh = true，方便端到端测试。"
     );
     rawSignal = "LONG";
     trendOk4h = true;
     regimeOk = true;
+    rsiOk = true;
+    notTooHigh = true;
   }
 
   // === 预先计算 SL / TP ===
@@ -263,6 +297,10 @@ async function runOnce() {
     ema50: e50_4h,
     ema200: e200_4h,
     atrPct: atrPct4h * 100,
+    rsi: rsiNow,
+    rsiOk,
+    premiumOverEma50Pct: premiumOverEma50 * 100,
+    notTooHigh,
     leverage3x: lev3,
     leverage5x: lev5,
     positionSuggestion: {
@@ -291,9 +329,9 @@ async function runOnce() {
   }
 
   // 如果没有有效多头信号：只写 log，不推送，不下单
-  if (!(rawSignal === "LONG" && trendOk4h && regimeOk)) {
+  if (!(rawSignal === "LONG" && trendOk4h && regimeOk && rsiOk && notTooHigh)) {
     console.log(
-      "\n>>> 建议：❌ 观望（要么没突破，要么 4H 趋势过滤/日线 Regime 未通过）"
+      "\n>>> 建议：❌ 观望（要么没突破，要么 4H 趋势 / 日线 Regime / RSI / 不追高 过滤未通过）"
     );
     console.log("（本次状态已写入 signal-log.jsonl）");
     return;

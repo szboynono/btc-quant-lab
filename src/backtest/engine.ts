@@ -51,6 +51,10 @@ export interface BacktestOptions {
   // RSI 过滤参数
   maxRsiForEntry?: number;    // 开多时 RSI 不得高于多少，默认 70
   minRsiForEntry?: number;    // 开多时 RSI 不得低于多少，默认 30（防止刀口接飞刀）
+  rsiPeriod?: number;         // RSI 计算周期，默认 14
+
+  // 不追高过滤：价格相对 EMA50 的最大溢价
+  maxPremiumOverEma50?: number; // 默认 5% 以内
 
   // ✅ 新增：高周期（日线）Regime 过滤
   /**
@@ -86,6 +90,8 @@ export function backtestSimpleBtcTrend(
     minAtrPct = 0.005,   // 默认：ATR 至少 0.5% 波动
     maxRsiForEntry = 70, // RSI 太高不追
     minRsiForEntry = 30, // RSI 太低不抄底
+    rsiPeriod = 14,
+    maxPremiumOverEma50 = 0.05,
 
     // ✅ 新增：高周期（日线）regime 过滤相关
     higherTFRegime,
@@ -101,7 +107,7 @@ export function backtestSimpleBtcTrend(
   const ema50 = ema(closes, 50);
   const ema200 = ema(closes, 200);
   const atr14 = atr(candles, 14);
-  const rsi14 = rsi(closes, 14); // 新增 RSI 指标
+  const rsiSeries = rsi(closes, rsiPeriod); // 新增 RSI 指标
 
   // ✅ 为高周期 regime 做一个「指针」
   let htTimes: number[] = [];
@@ -131,7 +137,7 @@ export function backtestSimpleBtcTrend(
     const { high, low, closeTime } = currentCandle;
 
     const atrValue = atr14[i];
-    const r = rsi14[i];
+    const r = rsiSeries[i];
 
     // 没有 ATR 或 RSI 的点直接跳过
     if (atrValue === undefined || r === undefined || Number.isNaN(r)) {
@@ -139,6 +145,7 @@ export function backtestSimpleBtcTrend(
     }
 
     const atrPct = atrValue / price;
+    const premiumOverEma50 = e50 > 0 ? (price - e50) / e50 : Infinity;
     const ema200Prev = ema200[i - 1]!;
 
     // === 4h 自身的 Regime 判断 ===
@@ -186,6 +193,7 @@ export function backtestSimpleBtcTrend(
 
     // === RSI 过滤（避免追高 + 避免太超跌） ===
     const rsiOk = r <= maxRsiForEntry && r >= minRsiForEntry;
+    const notTooHigh = premiumOverEma50 <= maxPremiumOverEma50;
 
     if (!inPosition) {
       let signal: "LONG" | "CLOSE_LONG" | "HOLD";
@@ -200,8 +208,8 @@ export function backtestSimpleBtcTrend(
         signal = detectSignal(price, prevPrice, e50, prevE50, inPosition);
       }
 
-      // 只有在：趋势（4h）ok + 高周期 ok + 波动 ok + RSI ok 时才开多
-      if (signal === "LONG" && trendOk && rsiOk) {
+      // 只有在：趋势（4h）ok + 高周期 ok + 波动 ok + RSI ok + 不追高 ok 时才开多
+      if (signal === "LONG" && trendOk && rsiOk && notTooHigh) {
         inPosition = true;
         entryPrice = price;
         entryTime = currentCandle.closeTime;

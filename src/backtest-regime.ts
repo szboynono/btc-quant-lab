@@ -17,6 +17,8 @@ export interface StrategyConfig {
   minAtrPct?: number;
   maxRsiForEntry?: number;
   minRsiForEntry?: number;
+  rsiPeriod?: number;             // ✅ 新增：RSI 周期
+  maxPremiumOverEma50?: number;   // ✅ 新增：不追高最大溢价
 }
 
 /**
@@ -57,11 +59,19 @@ export function runBacktestWithConfig(
     useTrendFilter: cfg.useTrendFilter ?? true,
     useV2Signal: cfg.useV2Signal ?? false,
     useV3Signal: cfg.useV3Signal ?? false,
-    stopLossPct: cfg.stopLossPct ?? 0.015,
+
+    // 👉 默认值改成和你现在实盘/strategy.json 一致
+    stopLossPct: cfg.stopLossPct ?? 0.008,
     takeProfitPct: cfg.takeProfitPct ?? 0.04,
-    minAtrPct: cfg.minAtrPct ?? 0.005,
-    maxRsiForEntry: cfg.maxRsiForEntry ?? 70,
+    minAtrPct: cfg.minAtrPct ?? 0.007,
+
+    maxRsiForEntry: cfg.maxRsiForEntry ?? 75,
     minRsiForEntry: cfg.minRsiForEntry ?? 30,
+
+    // ✅ 补上传递 RSI 周期 & 不追高参数
+    rsiPeriod: cfg.rsiPeriod ?? 14,
+    maxPremiumOverEma50: cfg.maxPremiumOverEma50 ?? 0.05,
+
     higherTFRegime: {
       times: dailyTimes,
       regimes: dailyRegimes,

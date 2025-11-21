@@ -30,6 +30,8 @@ async function main() {
     // 这里改成从 strategy.json 里读 RSI 区间
     maxRsiForEntry: strategy.maxRsiForEntry ?? 75,
     minRsiForEntry: strategy.minRsiForEntry ?? 30,
+    rsiPeriod: strategy.rsiPeriod ?? 14,
+    maxPremiumOverEma50: strategy.maxPremiumOverEma50 ?? 0.05,
   };
 
   console.log("\n=== 回测 1：V2（同一套参数，只用 V2 信号） ===");

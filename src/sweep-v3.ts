@@ -2,8 +2,12 @@
 import "dotenv/config";
 import fs from "node:fs";
 import type { Candle } from "./types/candle.js";
-import { runBacktestWithConfig, type StrategyConfig } from "./backtest-regime.js";
+import {
+  runBacktestWithConfig,
+  type StrategyConfig,
+} from "./backtest-regime.js";
 import type { BacktestResult } from "./backtest/engine.js";
+import strategy from "./config/strategy.json" with { type: "json" };
 
 interface SweepItem {
   cfg: StrategyConfig;
@@ -18,7 +22,9 @@ function loadCandlesFromFile(path: string): Candle[] {
 }
 
 async function main() {
-  console.log("===== V3 参数扫街（sweep，本地 data/ JSON）开始 =====");
+  console.log(
+    "===== V3 参数扫街（V3 + Regime + RSI + 不追高，本地 data/ JSON）开始 ====="
+  );
 
   // ✅ 直接用你现有的快照
   const candles4h = loadCandlesFromFile("./data/btc-4h.json");
@@ -32,10 +38,21 @@ async function main() {
     return;
   }
 
+  // ✅ 固定用和实盘一致的 RSI 周期 & 不追高参数
+  const baseRsiPeriod = (strategy as any).rsiPeriod ?? 14;
+  const baseMaxPremiumOverEma50 =
+    (strategy as any).maxPremiumOverEma50 ?? 0.05;
+
+  console.log(
+    `固定参数: rsiPeriod=${baseRsiPeriod}, maxPremiumOverEma50=${(
+      baseMaxPremiumOverEma50 * 100
+    ).toFixed(1)}%`
+  );
+
   // ===== 参数搜索空间（以后可以再调细） =====
-  const stopLossList = [0.006, 0.008, 0.01];             // 0.6% / 0.8% / 1%
-  const takeProfitList = [0.04, 0.05, 0.06];             // 4% / 5% / 6%
-  const minAtrPctList = [0.007, 0.0075, 0.008, 0.009];   // ATR / price
+  const stopLossList = [0.006, 0.008, 0.01]; // 0.6% / 0.8% / 1%
+  const takeProfitList = [0.04, 0.05, 0.06]; // 4% / 5% / 6%
+  const minAtrPctList = [0.007, 0.0075, 0.008, 0.009]; // ATR / price
   const maxRsiList = [65, 70, 75];
   const minRsiList = [25, 30, 35];
 
@@ -75,6 +92,8 @@ async function main() {
               minAtrPct,
               maxRsiForEntry,
               minRsiForEntry,
+              rsiPeriod: baseRsiPeriod, // ✅ 固定 RSI 周期
+              maxPremiumOverEma50: baseMaxPremiumOverEma50, // ✅ 固定不追高溢价
             };
 
             console.log(
@@ -134,7 +153,9 @@ async function main() {
       `配置: SL=${(cfg.stopLossPct! * 100).toFixed(2)}%, ` +
         `TP=${(cfg.takeProfitPct! * 100).toFixed(2)}%, ` +
         `minAtrPct=${(cfg.minAtrPct! * 100).toFixed(2)}%, ` +
-        `RSI区间=[${cfg.minRsiForEntry}, ${cfg.maxRsiForEntry}]`
+        `RSI区间=[${cfg.minRsiForEntry}, ${cfg.maxRsiForEntry}], ` +
+        `RSI周期=${cfg.rsiPeriod}, ` +
+        `MaxPremiumOverEma50=${(cfg.maxPremiumOverEma50! * 100).toFixed(1)}%`
     );
     console.log(
       `结果: 年化=${stats.annualizedReturnPct.toFixed(
